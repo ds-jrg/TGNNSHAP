@@ -2,6 +2,7 @@ digraph G {
     // Layout options
     layout=neato;
     overlap=false;
+    margin=0;
     splines=true;
     
     node[label="", shape=circle, 

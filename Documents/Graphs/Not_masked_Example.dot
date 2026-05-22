@@ -1,0 +1,92 @@
+digraph G {
+    // A -> B [
+    //     label=<
+    //     <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    //         <TR>
+    //             <TD BGCOLOR="#eeeeee">0.1</TD>
+    //             <TD BGCOLOR="#999999">0.8</TD>
+    //             <TD BGCOLOR="#cccccc">0.4</TD>
+    //             <TD BGCOLOR="#555555">0.9</TD>
+    //         </TR>
+    //     </TABLE>
+    //     >
+    // ];
+    margin=0
+    node[label="", shape=circle]
+
+    A [fillcolor=lightblue, style=filled, label="A"];
+    B [fillcolor=lightblue, style=filled, label="B"];
+    C [fillcolor=lightblue, style=filled, label="C"];
+
+    A1 [label = ""];
+    A21 [label = ""];
+
+    A -> B [label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+            <TR>
+                <TD><B>t = 5</B></TD>
+            </TR>
+        </TABLE>
+        >]
+    A1 -> A [label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+            <TR>
+                <TD><B>t = 3</B></TD>
+            </TR>
+            <TR>
+                <TD>
+                    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+                        <TR>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                        </TR>
+                    </TABLE>
+                </TD>
+            </TR>
+
+        </TABLE>
+        >]
+    C -> A [label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+            <TR>
+                <TD><B>t = 2</B></TD>
+            </TR>
+            <TR>
+                <TD>
+                    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+                        <TR>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                        </TR>
+                    </TABLE>
+                </TD>
+            </TR>
+
+        </TABLE>
+        >]
+
+    A21 -> C [label=<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
+            <TR>
+                <TD><B>t = 1</B></TD>
+            </TR>
+            <TR>
+                <TD>
+                    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+                        <TR>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                            <TD BGCOLOR="#ffffff"> </TD>
+                        </TR>
+                    </TABLE>
+                </TD>
+            </TR>
+
+        </TABLE>
+        >]
+}
