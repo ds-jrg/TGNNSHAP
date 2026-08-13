@@ -115,7 +115,7 @@ class Explainer(ABC):
         """
         assert src.shape == dst.shape == timestamp.shape == ground_truth.shape, \
             "Src, dst, timestamp and ground_truth need to have the same shape."
-        mean_values, mean_delta_timings = compute_default_values(self.data, event_features, label_for_prediction)
+        mean_values, mean_delta_timings = compute_default_values(self.data, event_features, label_for_prediction=label_for_prediction)
 
         timings = []
         result_mean = []
@@ -479,7 +479,7 @@ class ExplanationResult:
         return result
 
 
-def compute_default_values(data: Data, event_features: np.ndarray, label_for_prediction: Optional[str] = None):
+def compute_default_values(data: Data, event_features: np.ndarray, max_timing: Optional[float] = None, label_for_prediction: Optional[str] = None):
     """
     Compute mean feature vectors and mean timing offsets (delta_t) per event type.
 
@@ -491,6 +491,8 @@ def compute_default_values(data: Data, event_features: np.ndarray, label_for_pre
         Dynamic graph dataset.
     event_features : np.ndarray
         Edge-level features for the graph.
+    max_timing : Optional[float]
+        If specified, only compute over events with timestamps <= max_timing.
     label_for_prediction : Optional[str]
         If specified, only compute over events with this label.
 
@@ -509,6 +511,10 @@ def compute_default_values(data: Data, event_features: np.ndarray, label_for_pre
             d_base = d[["i", "ts"]][d.type == label_for_prediction].sort_values(by="ts")
         else:
             d_base = d[["i", "ts"]].sort_values(by="ts")
+            
+        if max_timing is not None:
+            d = d[d.ts <= max_timing]
+            d_base = d_base[d_base.ts <= max_timing]
 
         for l, _ in d.type.value_counts().items():
             d_l = d[["i", "ts"]][d.type == l].sort_values(by="ts").rename(columns={'ts': f'ts_{l}'})

@@ -41,25 +41,101 @@ class ShapleyExplainerEvents(Explainer):
         Matrix of event-level features.
     """
 
-    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data, event_features: np.ndarray, node_names: Optional[np.ndarray] = None):
+    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data, 
+                 event_features: np.ndarray, node_names: Optional[np.ndarray] = None, 
+                 algorithm: str = "KernelSHAP", recompute_mean_on_prevoius_events: bool = False,
+                 label_for_prediction: Optional[str] = None):
         super().__init__(model, neighbor_finder, data)
         self.event_features = event_features
         self.node_names = node_names
+        self.algorithm = algorithm
+        self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
+        self.label_for_prediction = label_for_prediction
 
-    def initialize(self, label_for_prediction: Optional[str] = None):
+    def initialize(self):
         """
         Precomputes default event feature and timing values 
         used for masked events.
+        """
+        if (not self.recompute_mean_on_prevoius_events):
+            self.mean_values, self.mean_delta_timings = compute_default_values(
+                self.data, self.event_features, label_for_prediction=self.label_for_prediction
+            )
+
+    def _explain_instance(self, src: int, dst: int, timestamp: float, subgraphs_src: BatchSubgraphs, subgraphs_dst: BatchSubgraphs, event_ids: np.ndarray, imputation_data: dict, silent: bool = False):
+        """
+        Internal method to compute Shapley values for a given set of subgraphs and events.
 
         Parameters
         ----------
-        label_for_prediction : Optional[str]
-            Optional target class for classification tasks.
-        """
-        self.mean_values, self.mean_delta_timings = compute_default_values(
-            self.data, self.event_features, label_for_prediction
-        )
+        src : int
+            Source node ID.
+        dst : int
+            Destination node ID.
+        timestamp : float
+            Timestamp of the interaction.
+        subgraphs_src : BatchSubgraphs
+            Source-side local subgraph.
+        subgraphs_dst : BatchSubgraphs
+            Destination-side local subgraph.
+        event_ids : np.ndarray
+            Array of event IDs in the subgraph.
+        imputation_data : dict
+            Mapping from event ID to default feature values for masking.
 
+        Returns
+        -------
+        shap_values : shap.Explanation
+            Shapley values for each event in the subgraph.
+        """
+        assert len(event_ids) != 0, "The computational subgraph contains no events!"
+        
+        def val(x):
+            """
+            Prediction function for SHAP that masks certain events.
+            """
+            srcs = np.full((len(x),), src)
+            dsts = np.full((len(x),), dst)
+            time_stamps = np.full((len(x),), timestamp)
+
+            sg_src = copy.deepcopy(subgraphs_src)
+            sg_dst = copy.deepcopy(subgraphs_dst)
+            sg_src.repeat_nodes(len(x))
+            sg_dst.repeat_nodes(len(x))
+
+            # Mask events where x==0
+            to_mask_events = x == 0
+            sg_src.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
+            sg_dst.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
+
+            # Model prediction
+            y = self.model(srcs, dsts, time_stamps,
+                            src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+            if CONFIG.model.task == "classification":
+                y = y.sigmoid()
+
+            return y.cpu().detach().numpy().reshape((-1,))
+
+        # Human-readable feature names for events
+        if self.node_names is not None:
+            labels = [f"{self.node_names[self.data.src_node_ids[e-1]]} to {self.node_names[self.data.dst_node_ids[e-1]]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
+        else:
+            labels = [f"{self.data.src_node_ids[e-1]} to {self.data.dst_node_ids[e-1]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
+
+        # Instantiate SHAP on binary event-inclusion mask
+        if self.algorithm == "KernelSHAP":
+            explainer = shap.explainers.KernelExplainer(
+                val, data=np.zeros((1, len(event_ids))), feature_names=labels
+            )
+            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent,  l1_reg=False) # type: ignore
+        elif self.algorithm == "Exact":
+            explainer = shap.explainers.ExactExplainer(val, masker=np.zeros((1, len(event_ids))), feature_names=labels)
+            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent)
+        else:
+            raise ValueError(f"Unsupported algorithm: {self.algorithm}")
+
+        return event_ids, shap_values
+    
     def explain_instance(self, src, dst, timestamp, silent=False):
         """
         Compute event-level Shapley values for a given node pair at a given time.
@@ -83,52 +159,17 @@ class ShapleyExplainerEvents(Explainer):
             shap_values : shap.Explanation
                 Shapley values for each event in the subgraph.
         """
+        if self.recompute_mean_on_prevoius_events:
+            self.mean_values, self.mean_delta_timings = compute_default_values(
+                self.data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
+            )
+        
         # Get local temporal subgraphs and imputation defaults
         subgraphs_src, subgraphs_dst, event_ids, imputation_data = default_values_subgraph(
             src, dst, timestamp, self.neighbor_finder, self.data,
             self.mean_delta_timings, self.mean_values
         )
-        assert len(event_ids) != 0, "The computational subgraph contains no events!"
-
-        def val(x):
-            """
-            Prediction function for SHAP that masks certain events.
-            """
-            srcs = np.full((len(x),), src)
-            dsts = np.full((len(x),), dst)
-            time_stamps = np.full((len(x),), timestamp)
-
-            sg_src = copy.deepcopy(subgraphs_src)
-            sg_dst = copy.deepcopy(subgraphs_dst)
-            sg_src.repeat_nodes(len(x))
-            sg_dst.repeat_nodes(len(x))
-
-            # Mask events where x==0
-            to_mask_events = x == 0
-            sg_src.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
-            sg_dst.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
-
-            # Model prediction
-            y = self.model(srcs, dsts, time_stamps,
-                           src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
-            if CONFIG.model.task == "classification":
-                y = y.sigmoid()
-
-            return y.cpu().detach().numpy().reshape((-1,))
-
-        # Human-readable feature names for events
-        if self.node_names is not None:
-            labels = [f"{self.node_names[self.data.src_node_ids[e-1]]} to {self.node_names[self.data.dst_node_ids[e-1]]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
-        else:
-            labels = [f"{self.data.src_node_ids[e-1]} to {self.data.dst_node_ids[e-1]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
-
-        # Instantiate KernelSHAP on binary event-inclusion mask
-        explainer = shap.explainers.KernelExplainer(
-            val, data=np.zeros((1, len(event_ids))), feature_names=labels
-        )
-        shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent,  l1_reg=False)
-
-        return event_ids, shap_values
+        return self._explain_instance(src, dst, timestamp, subgraphs_src, subgraphs_dst, event_ids, imputation_data, silent)
 
     def build_coalitions(self, explanation):
         """
@@ -185,7 +226,8 @@ class ShapleyExplainerFeatures(Explainer):
 
     def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data,
                  event_features: np.ndarray, feature_names: Optional[Union[np.ndarray, bool]] = None,
-                 shapley_alg="KernelSHAP", top_k: Optional[int] = None,
+                 shapley_alg="KernelSHAP", top_k: Optional[int] = None, recompute_mean_on_prevoius_events: bool = False, 
+                 label_for_prediction: Optional[str] = None,
                  node_names: Optional[np.ndarray] = None):
         super().__init__(model, neighbor_finder, data)
         self.event_features = event_features
@@ -194,12 +236,15 @@ class ShapleyExplainerFeatures(Explainer):
         self.is_feature_level = True
         self.node_names = node_names
         self.top_k = top_k
+        self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
+        self.label_for_prediction = label_for_prediction
 
-    def initialize(self, label_for_prediction: Optional[str] = None):
+    def initialize(self):
         """Compute default values for imputing masked features."""
-        self.mean_values, self.mean_delta_timings = compute_default_values(
-            self.data, self.event_features, label_for_prediction
-        )
+        if not self.recompute_mean_on_prevoius_events:
+            self.mean_values, self.mean_delta_timings = compute_default_values(
+                self.data, self.event_features, label_for_prediction=self.label_for_prediction
+            )
 
     def build_coalitions(self, explanation):
         """
@@ -230,7 +275,7 @@ class ShapleyExplainerFeatures(Explainer):
         return players, None, None
 
     def explain_instance(self, src: int, dst: int, timestamp: int, silent=False,
-                         event_id=None, max_num_samples=550):
+                         event_id: Optional[int] = None, max_num_samples=550):
         """
         Explain features contributing to a given node interaction.
 
@@ -258,6 +303,10 @@ class ShapleyExplainerFeatures(Explainer):
             Flattened feature SHAP values, remaining event IDs, 
             remaining event SHAP scores, and baseline value.
         """
+        if self.recompute_mean_on_prevoius_events:
+            self.mean_values, self.mean_delta_timings = compute_default_values(
+                self.data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
+            )
         # Get local computational subgraph
         subgraphs_src, subgraphs_dst, event_ids, imputation_data = default_values_subgraph(
             src, dst, timestamp, self.neighbor_finder, self.data,
@@ -279,7 +328,7 @@ class ShapleyExplainerFeatures(Explainer):
 
         # Select events to explain at feature-level
         if event_id is not None:
-            ids_to_explain = [event_id]
+            ids_to_explain = np.array([event_id])
             remaining_ids = (e_ids[e_ids != event_id]).flatten()
             remaining_shapley_values = (shapley_values.values[0][e_ids != event_id]).flatten()
         elif self.top_k is not None:
@@ -288,9 +337,7 @@ class ShapleyExplainerFeatures(Explainer):
             remaining_ids = (e_ids[sorting[self.top_k:]]).flatten()
             remaining_shapley_values = (shapley_values.values[0][sorting[self.top_k:]]).flatten()
         else:
-            ids_to_explain = event_ids
-            remaining_ids = []
-            remaining_shapley_values = []
+            raise ValueError("Either `event_id` or `top_k` must be specified for feature-level explanation.")
 
         # Prepare events for explanation
         
@@ -317,6 +364,11 @@ class ShapleyExplainerFeatures(Explainer):
                 values, features_values, features = self.explain_event_permutation(
                     src, dst, timestamp, e_id, subgraphs_src, subgraphs_dst, imputation_data, silent
                 )
+            elif self.shapley_alg == "Exact":
+                expl = self.explain_event_exact(
+                    src, dst, timestamp, e_id, subgraphs_src, subgraphs_dst, imputation_data, silent
+                )
+                features, features_values, values = expl.feature_names, expl[0].data, expl[0].values
             else:
                 raise NotImplementedError()
 
@@ -645,7 +697,40 @@ class ShapleyExplainerFeatures(Explainer):
             if CONFIG.model.task == "classification":
                 y[i, :] = y[i, :].sigmoid()
         return y
+    
+    def explain_event_exact(
+        self, src: int, dst: int, timestamp: int, event_id: int,
+        subgraphs_src: BatchSubgraphs, subgraphs_dst: BatchSubgraphs,
+        imputation_data: dict, silent: bool
+    ):
+        event_ids = np.concat([subgraphs_src.get_events(), subgraphs_dst.get_events()]).reshape((-1,))
+        event_ids = np.unique(event_ids[event_ids != 0])
+        event_explainer = ShapleyExplainerEvents(self.model, self.neighbor_finder, self.data, self.event_features, algorithm="Exact") 
 
+        def val_features(feature_mask: np.ndarray):
+            default_time_stamps = feature_mask[:, 1]
+            phis = np.zeros((feature_mask.shape[0],))
+            for i, m in enumerate(feature_mask):
+                event_masks_src = subgraphs_src.get_event_masks(event_id)
+                event_masks_dst = subgraphs_dst.get_event_masks(event_id)
+                subgraphs_src.replace_event(event_masks_src, torch.tensor(m[0], dtype=torch.float32).to(CONFIG.model.device), default_time_stamps[i], torch.tensor(m[2:], dtype=torch.float32).to(CONFIG.model.device))
+                subgraphs_dst.replace_event(event_masks_dst, torch.tensor(m[0], dtype=torch.float32).to(CONFIG.model.device), default_time_stamps[i], torch.tensor(m[2:], dtype=torch.float32).to(CONFIG.model.device))
+
+                shap_values = event_explainer._explain_instance(src, dst, timestamp, subgraphs_src, subgraphs_dst, event_ids, imputation_data, silent)[1]
+                phi = shap_values.values[0][event_ids == event_id]
+                phis[i] = phi
+            return phis
+
+        event_features = self.neighbor_finder.get_edge_features(np.array([event_id])).detach().numpy().flatten()
+        labels = self._get_labels(event_features.shape[0])
+        explainer = shap.ExactExplainer(
+            val_features, masker=imputation_data[event_id].cpu().numpy().reshape(1, -1), feature_names=labels
+        )
+        if CONFIG.model.task == "classification": #reduce event ID by 1 since baseline datasets do not contain the zero event.
+            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+        else:
+            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+        return explainer(d.reshape(1, -1), silent=silent)
 
     def explain_event_monte_carlo(
         self, src: int, dst: int, timestamp: int, event_id: int,

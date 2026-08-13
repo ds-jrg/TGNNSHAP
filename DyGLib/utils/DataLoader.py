@@ -85,9 +85,9 @@ def get_link_prediction_data(val_ratio: float, test_ratio: float, node_dim: int)
     node_raw_features = np.zeros((node_raw_features.shape[0], node_dim))
     node_raw_features = node_raw_features.astype("float32")
 
-    if edge_raw_features.shape[1] < 172:
-        edge_zero_padding = np.zeros((edge_raw_features.shape[0], 172 - edge_raw_features.shape[1]))
-        edge_raw_features = np.concatenate([edge_raw_features, edge_zero_padding], axis=1)
+    # if edge_raw_features.shape[1] < 172:
+    #     edge_zero_padding = np.zeros((edge_raw_features.shape[0], 172 - edge_raw_features.shape[1]))
+    #     edge_raw_features = np.concatenate([edge_raw_features, edge_zero_padding], axis=1)
 
     edge_raw_features = edge_raw_features.astype("float32")
 
@@ -136,7 +136,7 @@ def get_link_prediction_data(val_ratio: float, test_ratio: float, node_dim: int)
     # compute nodes which appear at test time
     test_node_set = set(src_node_ids[node_interact_times > val_time]).union(set(dst_node_ids[node_interact_times > val_time]))
     # sample nodes which we keep as new nodes (to test inductiveness), so then we have to remove all their edges from training
-    new_test_node_set = set(random.sample(test_node_set, int(0.1 * num_total_unique_node_ids)))
+    new_test_node_set = set(random.sample(sorted(test_node_set), int(0.1 * num_total_unique_node_ids)))
 
     # mask for each source and destination to denote whether they are new test nodes
     new_test_source_mask = graph_df.u.map(lambda x: x in new_test_node_set).values.astype("bool")
