@@ -7,6 +7,7 @@ from DyGLib.models.modules import TGNN
 from Config.config import CONFIG
 
 from .tgnnexplainer.tgnnexplainer.xgraph.method.subgraphx_tg import SubgraphXTG
+from .tgnnexplainer.tgnnexplainer.xgraph.method.other_baselines_tg import PGExplainerExt
 from .tgnnexplainer.tgnnexplainer.xgraph.evaluation.metrics_tg import EvaluatorMCTSTG
 
 import numpy as np
@@ -17,16 +18,49 @@ CONFIG = CONFIG()
 
 class SubgraphXTExplainer(Explainer):
     def __init__(self, model:TGNN, neighbor_finder: NeighborSampler, data: Data):
-        super().__init__(model, neighbor_finder, data)
+        super().__init__(model, neighbor_finder, data)        
 
+    def initialize(self):
+        
+        explainer = PGExplainerExt(
+            self.model,
+            self.neighbor_finder,
+            model_name=CONFIG.model.model_name.lower(),
+            explainer_name="pg_explainer_tg",  # fixed
+            dataset_name=CONFIG.data.dataset_name,
+            seed=123,
+            all_events=self.data.dataset if self.data.dataset is not None else pd.DataFrame(),
+            explanation_level="event",
+            device=CONFIG.model.device,
+            results_dir="Logs/TGNNExplainer/"+CONFIG.data.dataset_name,
+            train_epochs=50,
+            explainer_ckpt_dir=CONFIG.data.folder+"/checkpoints/pg_explainer_tg",
+            reg_coefs=(0.5,0.1),
+            batch_size=16,
+            lr=1e-4,
+            debug_mode=True,
+        )
+        explainer() # Runs training if not already trained, otherwise loads the trained model from checkpoint
+        
+        pg_explainer_model, explainer_ckpt_path = PGExplainerExt.expose_explainer_model(
+            self.model,  # load a trained mlp model
+            model_name=CONFIG.model.model_name.lower(),
+            explainer_name="pg_explainer_tg",  # fixed
+            dataset_name=CONFIG.data.dataset_name,
+            ckpt_dir=CONFIG.data.folder+"/checkpoints/pg_explainer_tg",
+            device=CONFIG.model.device,
+            seed=123,
+        )
+        print("used pg_explainer_tg ckpt:", explainer_ckpt_path)
+        
         self.explainer = SubgraphXTG(
-                model,
-                neighbor_finder,
+                self.model,
+                self.neighbor_finder,
                 CONFIG.model.model_name.lower(),
                 "subgraphx_tg",
                 CONFIG.data.dataset_name,
-                2025,
-                data.dataset if data.dataset is not None else pd.DataFrame(),
+                123,
+                self.data.dataset if self.data.dataset is not None else pd.DataFrame(),
                 "event",
                 device=CONFIG.model.device,
                 results_dir="Logs/TGNNExplainer/"+CONFIG.data.dataset_name,
@@ -37,7 +71,7 @@ class SubgraphXTExplainer(Explainer):
                 rollout=CONFIG.tgnnExplainerConfig.num_rollouts,
                 min_atoms=CONFIG.tgnnExplainerConfig.min_atoms,
                 c_puct=5,
-                pg_explainer_model=None,
+                pg_explainer_model=pg_explainer_model,
                 pg_positive=True,
                 num_layers=CONFIG.model.num_layers,
                 num_neighbors=CONFIG.model.num_neighbors,
@@ -49,12 +83,9 @@ class SubgraphXTExplainer(Explainer):
             dataset_name=CONFIG.data.dataset_name,
             explainer=self.explainer,
             results_dir=CONFIG.data.folder,
-            seed=2025,
+            seed=123,
             cpuct=5
         )
-
-    def initialize(self):
-        pass
 
     def explain_instance(self, src, dst, timestamp, silent = False):
         mask = (self.data.src_node_ids == src) & (self.data.dst_node_ids == dst) & (self.data.node_interact_times == timestamp)

@@ -137,7 +137,7 @@ class BaseExplainerTG(object):
         else:
             raise NotImplementedError
 
-        candidate_events = unique_e_idx
+        candidate_events = unique_e_idx[unique_e_idx != 0]  # NOTE: 0 are padded e_idxs
         threshold_num = 20
         if len(candidate_events) > threshold_num:
             candidate_events = candidate_events[-threshold_num:]

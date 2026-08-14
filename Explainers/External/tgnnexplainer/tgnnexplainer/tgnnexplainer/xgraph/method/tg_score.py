@@ -2,6 +2,7 @@ from typing import Union
 from typing import List
 import numpy as np
 from pandas import DataFrame
+import torch
 
 from ..models.ext.tgat.module import TGAN
 from ..models.ext.tgn.model.tgn import TGN
@@ -26,7 +27,7 @@ def _set_tgat_data(all_events: DataFrame, target_event_idx: Union[int, List]):
         src_idx_l = np.array([target_u, ])
         target_idx_l = np.array([target_i, ])
         cut_time_l = np.array([target_t, ])
-    elif isinstance(target_event_idx, list):
+    elif isinstance(target_event_idx, (list, np.ndarray)):
         # targets = all_events[all_events.e_idx.isin(target_event_idx)]
         targets = all_events.iloc[np.isin(all_events.idx, target_event_idx)] # faster?
 
@@ -63,7 +64,7 @@ class TGNNRewardWraper(object):
     #     pass
 
     
-    def _get_model_prob(self, target_event_idx, seen_events_idxs):
+    def _get_model_prob(self, target_event_idx, seen_events_idxs, candidate_weights_dict=None):
         if self.model_name in ['tgat', 'tgn']:
             input_data = _set_tgat_data(self.all_events, target_event_idx)
             # seen_events_idxs = _set_tgat_events_idxs(seen_events_idxs) # NOTE: not important now
@@ -76,11 +77,24 @@ class TGNNRewardWraper(object):
             edge_feat_src = self.neighbor_finder.get_edge_features_for_multi_hop(subgraphs_src[1])
             subgraphs_src = BatchSubgraphs(*subgraphs_src, edge_feat_src)
             subgraphs_src.to(CONFIG.model.device)
-
+            for layer_idx, (e_ids, e_attn) in enumerate(zip(subgraphs_src.events, subgraphs_src.event_attention)):
+                if candidate_weights_dict is not None:
+                    for e_id, new_e_attn in zip(candidate_weights_dict['candidate_events'], candidate_weights_dict['edge_weights']):
+                        e_attn[e_ids==e_id.cpu()] = torch.tensor(new_e_attn, device=CONFIG.model.device)
+                else:
+                    subgraphs_src.event_attention[layer_idx].zero_()  # zero the stored attention mask in-place so the model actually sees it
+                        
             subgraphs_dst = self.neighbor_finder.get_multi_hop_neighbors(CONFIG.model.num_layers, input_data[1], input_data[2], CONFIG.model.num_neighbors, kept_edge_ids = seen_events_idxs)
             edge_feat_dst = self.neighbor_finder.get_edge_features_for_multi_hop(subgraphs_dst[1])
             subgraphs_dst = BatchSubgraphs(*subgraphs_dst, edge_feat_dst)
             subgraphs_dst.to(CONFIG.model.device)
+            for layer_idx, (e_ids, e_attn) in enumerate(zip(subgraphs_dst.events, subgraphs_dst.event_attention)):
+                if candidate_weights_dict is not None:
+                    for e_id, new_e_attn in zip(candidate_weights_dict['candidate_events'], candidate_weights_dict['edge_weights']):
+                        e_attn[e_ids==e_id.cpu()] = torch.tensor(new_e_attn, device=CONFIG.model.device)
+                else:
+                    subgraphs_dst.event_attention[layer_idx].zero_()  # zero the stored attention mask in-place so the model actually sees it
+            
 
             score = self.model(*input_data, src_subgraphs=subgraphs_src, dst_subgraphs=subgraphs_dst, time_gap=CONFIG.model.time_gap, edges_are_positive = False)
             # import ipdb; ipdb.set_trace()

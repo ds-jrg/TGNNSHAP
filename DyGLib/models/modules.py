@@ -259,7 +259,7 @@ class NeuralNetworkSrcDst(TGNNModel):
 class MultiHeadAttention(nn.Module):
 
     def __init__(self, node_feat_dim: int, edge_feat_dim: int, time_feat_dim: int,
-                 num_heads: int = 2, dropout: float = 0.1):
+                 num_heads: int = 2, dropout: float = 0.1, edge_attention_alter_mode: str = "add"):
         """
         Multi-head Attention module.
         :param node_feat_dim: int, dimension of node features
@@ -267,6 +267,7 @@ class MultiHeadAttention(nn.Module):
         :param time_feat_dim: int, dimension of time features (time encodings)
         :param num_heads: int, number of attention heads
         :param dropout: float, dropout rate
+        :param edge_attention_alter_mode: str, how to alter the attention scores by edge attention, "add" or "multiply"
         """
         super(MultiHeadAttention, self).__init__()
 
@@ -274,6 +275,7 @@ class MultiHeadAttention(nn.Module):
         self.edge_feat_dim = edge_feat_dim
         self.time_feat_dim = time_feat_dim
         self.num_heads = num_heads
+        self.edge_attention_alter_mode = edge_attention_alter_mode
 
         node_feat_dim -= (node_feat_dim + time_feat_dim) % num_heads
 
@@ -337,7 +339,10 @@ class MultiHeadAttention(nn.Module):
         if(edge_attn is not None):
             edge_attn = edge_attn.unsqueeze(dim=1)
             edge_attn = torch.stack([edge_attn for _ in range(self.num_heads)], dim=1)
-            attention = attention * edge_attn
+            if self.edge_attention_alter_mode == "add":
+                attention = attention + edge_attn
+            elif self.edge_attention_alter_mode == "multiply":
+                attention = attention * edge_attn
 
         # Tensor, shape (batch_size, 1, num_neighbors)
         attention_mask = torch.from_numpy(neighbor_masks).to(node_features.device).unsqueeze(dim=1)

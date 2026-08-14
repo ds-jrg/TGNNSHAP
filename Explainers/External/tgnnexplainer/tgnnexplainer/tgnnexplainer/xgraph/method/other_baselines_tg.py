@@ -233,7 +233,7 @@ class PGExplainerExt(BaseExplainerTG):
             else:
                 candidate_weights_dict = None
             # NOTE: use the 'src_ngh_eidx_batch' in module to locate mask fill positions
-            output = self.tgnn_reward_wraper._get_model_prob(event_idx, seen_events_idxs=None)
+            output = self.tgnn_reward_wraper._get_model_prob(event_idx, seen_events_idxs=None, candidate_weights_dict=candidate_weights_dict)
             return output, edge_weights
 
         else:
@@ -270,12 +270,10 @@ class PGExplainerExt(BaseExplainerTG):
     ):
         size = 1000
         # np.random.seed( np.random.randint(10000) )
-        if self.dataset_name in ["wikipedia", "reddit", "mooc", "reddit_hyperlinks"]:
-            train_e_idxs = np.random.randint(
-                int(len(self.all_events) * 0.2),
-                int(len(self.all_events) * 0.6),
-                (size,),
-            )
+        if self.dataset_name in ["wikipedia", "reddit", "mooc", "reddit_hyperlinks", "Generated"]:
+            train_e_idxs = np.where(~np.isnan(self.all_events["label"]))[0]
+            train_e_idxs = np.random.choice(train_e_idxs, size=size, replace=True)
+            train_e_idxs = self.all_events.iloc[train_e_idxs].idx.values
             train_e_idxs = shuffle(train_e_idxs)  # TODO: not shuffle?
         elif self.dataset_name in ["simulate_v1", "simulate_v2"]:
             positive_indices = self.all_events.label == 1
@@ -309,7 +307,7 @@ class PGExplainerExt(BaseExplainerTG):
                 enumerate(train_e_idxs), total=len(train_e_idxs), desc=f"epoch {e}"
             ):  # training
                 self._initialize(event_idx)  # NOTE: needed
-                if len(self.candidate_events) == 0:  # skip bad samples
+                if len(self.candidate_events) == 0 or np.all(self.candidate_events == 0):  # skip bad samples
                     skipped_num += 1
                     continue
 
@@ -324,15 +322,18 @@ class PGExplainerExt(BaseExplainerTG):
                     masked_pred, original_pred, mask_values, self.reg_coefs
                 )
                 # import ipdb; ipdb.set_trace()
-                id_loss = id_loss.flatten()
-                assert len(id_loss) == 1
+                # id_loss = id_loss.flatten()
+                # assert len(id_loss) == 1
 
                 loss += id_loss
-                loss_list.append(id_loss.cpu().detach().item())
+                loss_list.append(id_loss)
                 counter += 1
 
                 if counter % self.batch_size == 0:
                     loss = loss / self.batch_size
+                    if loss == 0:
+                        optimizer.zero_grad()
+                        continue
                     loss.backward()
                     optimizer.step()
                     loss = torch.tensor([0], dtype=torch.float32, device=self.device)

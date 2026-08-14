@@ -16,7 +16,8 @@ from torch_geometric.nn import TransformerConv
 class TGAT(TGNNBackbone):
 
     def __init__(self, num_nodes: int, node_dim: int, edge_dim: int,
-                 time_feat_dim: int, dropout: float = 0.1, device: str = 'cpu', num_layers: int = 2, num_heads: int = 2):
+                 time_feat_dim: int, dropout: float = 0.1, device: str = 'cpu', num_layers: int = 2, num_heads: int = 2,
+                 edge_attention_alter_mode: str = "add"):
         """
         TGAT model.
         :param node_raw_features: ndarray, shape (num_nodes + 1, node_feat_dim)
@@ -39,7 +40,8 @@ class TGAT(TGNNBackbone):
                                                                       edge_feat_dim=self.edge_feat_dim,
                                                                       time_feat_dim=self.time_feat_dim,
                                                                       num_heads=self.num_heads,
-                                                                      dropout=self.dropout) for _ in range(num_layers)])
+                                                                      dropout=self.dropout,
+                                                                      edge_attention_alter_mode=edge_attention_alter_mode) for _ in range(num_layers)])
         # follow the TGAT paper, use merge layer to combine the attention results and node original feature
         # self.merge_layers = nn.ModuleList([MergeLayer(input_dim1=self.node_feat_dim + self.time_feat_dim, input_dim2=self.node_feat_dim,
         #                                               hidden_dim=0, output_dim=self.node_feat_dim) for _ in range(num_layers)])
