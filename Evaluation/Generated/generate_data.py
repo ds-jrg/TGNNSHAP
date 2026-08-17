@@ -5,8 +5,8 @@ import os
 np.random.seed(2026)
 
 # Parameters
-num_timesteps = 51
-num_samples_per_timestep = 1000
+num_timesteps = 10
+num_samples_per_timestep = 10
 
 data = []
 
@@ -30,7 +30,7 @@ for t in range(1, num_timesteps):
             'label': ''
         })
         for id in [src_id, tgt_id]:
-            for _ in range(np.random.randint(0, 4)):
+            for _ in range(2):
                 data.append({
                     'ts': t+1,
                     'u': rand_id,
@@ -39,7 +39,7 @@ for t in range(1, num_timesteps):
                 })
                 curr_rand_id = rand_id
                 rand_id += 1
-                for _ in range(np.random.randint(0, 4)):
+                for _ in range(2):
                     data.append({
                         'ts': t,
                         'u': rand_id,

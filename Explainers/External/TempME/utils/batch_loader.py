@@ -117,17 +117,17 @@ def load_subgraph(args, file, batch_id):
     return subgraph_src, subgraph_tgt, subgraph_bgd, walks_src, walks_tgt, walks_bgd
 
 
-def load_subgraph_margin(n_degree, file):
+def load_subgraph_margin(args, file):
     ####### subgraph_src
     subgraph_src_0 = file["subgraph_src_0"][:]
-    x0, y0, z0 = subgraph_src_0[:, 0:n_degree], subgraph_src_0[:,
-                                                     n_degree: 2 * n_degree], subgraph_src_0[:,
-                                                                                        2 * n_degree: 3 * n_degree]
+    x0, y0, z0 = subgraph_src_0[:, 0:args.n_degree], subgraph_src_0[:,
+                                                     args.n_degree: 2 * args.n_degree], subgraph_src_0[:,
+                                                                                        2 * args.n_degree: 3 * args.n_degree]
     node_records, eidx_records, t_records = [x0], [y0], [z0]
     subgraph_src_1 = file["subgraph_src_1"][:]
-    x1, y1, z1 = subgraph_src_1[:, 0:n_degree ** 2], subgraph_src_1[:,
-                                                          n_degree ** 2: 2 * n_degree ** 2], subgraph_src_1[:,
-                                                                                                       2 * n_degree ** 2: 3 * n_degree ** 2]
+    x1, y1, z1 = subgraph_src_1[:, 0:args.n_degree ** 2], subgraph_src_1[:,
+                                                          args.n_degree ** 2: 2 * args.n_degree ** 2], subgraph_src_1[:,
+                                                                                                       2 * args.n_degree ** 2: 3 * args.n_degree ** 2]
     node_records.append(x1)
     eidx_records.append(y1)
     t_records.append(z1)
@@ -135,14 +135,14 @@ def load_subgraph_margin(n_degree, file):
 
     ####### subgraph_tgt
     subgraph_tgt_0 = file["subgraph_tgt_0"][:]
-    x0, y0, z0 = subgraph_tgt_0[:, 0:n_degree], subgraph_tgt_0[:,
-                                                     n_degree: 2 * n_degree], subgraph_tgt_0[:,
-                                                                                        2 * n_degree: 3 * n_degree]
+    x0, y0, z0 = subgraph_tgt_0[:, 0:args.n_degree], subgraph_tgt_0[:,
+                                                     args.n_degree: 2 * args.n_degree], subgraph_tgt_0[:,
+                                                                                        2 * args.n_degree: 3 * args.n_degree]
     node_records, eidx_records, t_records = [x0], [y0], [z0]
     subgraph_tgt_1 = file["subgraph_tgt_1"][:]
-    x1, y1, z1 = subgraph_tgt_1[:, 0:n_degree ** 2], subgraph_tgt_1[:,
-                                                          n_degree ** 2: 2 * n_degree ** 2], subgraph_tgt_1[:,
-                                                                                                       2 * n_degree ** 2: 3 * n_degree ** 2]
+    x1, y1, z1 = subgraph_tgt_1[:, 0:args.n_degree ** 2], subgraph_tgt_1[:,
+                                                          args.n_degree ** 2: 2 * args.n_degree ** 2], subgraph_tgt_1[:,
+                                                                                                       2 * args.n_degree ** 2: 3 * args.n_degree ** 2]
     node_records.append(x1)
     eidx_records.append(y1)
     t_records.append(z1)
@@ -150,20 +150,20 @@ def load_subgraph_margin(n_degree, file):
 
     ### subgraph_bgd
     subgraph_bgd_0 = file["subgraph_bgd_0"][:]
-    x0, y0, z0 = subgraph_bgd_0[:, 0:n_degree], subgraph_bgd_0[:,
-                                                     n_degree: 2 * n_degree], subgraph_bgd_0[:,
-                                                                                        2 * n_degree: 3 * n_degree]
+    x0, y0, z0 = subgraph_bgd_0[:, 0:args.n_degree], subgraph_bgd_0[:,
+                                                     args.n_degree: 2 * args.n_degree], subgraph_bgd_0[:,
+                                                                                        2 * args.n_degree: 3 * args.n_degree]
     node_records, eidx_records, t_records = [x0], [y0], [z0]
     subgraph_bgd_1 = file["subgraph_bgd_1"][:]
-    x1, y1, z1 = subgraph_bgd_1[:, 0:n_degree ** 2], subgraph_bgd_1[:,
-                                                          n_degree ** 2: 2 * n_degree ** 2], subgraph_bgd_1[:,
-                                                                                                       2 * n_degree ** 2: 3 * n_degree ** 2]
+    x1, y1, z1 = subgraph_bgd_1[:, 0:args.n_degree ** 2], subgraph_bgd_1[:,
+                                                          args.n_degree ** 2: 2 * args.n_degree ** 2], subgraph_bgd_1[:,
+                                                                                                       2 * args.n_degree ** 2: 3 * args.n_degree ** 2]
     node_records.append(x1)
     eidx_records.append(y1)
     t_records.append(z1)
     subgraph_bgd = (node_records, eidx_records, t_records)
 
-    walks_src = file["walks_src"][:]
+    walks_src = file["walks_src_new"][:]
     node_records, eidx_records, t_records, cat_feat, marginal = walks_src[:, :, :6], walks_src[:, :, 6:9], walks_src[:,
                                                                                                            :,
                                                                                                            9:12], walks_src[
@@ -174,7 +174,7 @@ def load_subgraph_margin(n_degree, file):
                                                                                                                           13:14]
     walks_src = (node_records.astype(int), eidx_records.astype(int), t_records, cat_feat.astype(int), marginal)
 
-    walks_tgt = file["walks_tgt"][:]
+    walks_tgt = file["walks_tgt_new"][:]
     node_records, eidx_records, t_records, cat_feat, marginal = walks_tgt[:, :, :6], walks_tgt[:, :, 6:9], walks_tgt[:,
                                                                                                            :,
                                                                                                            9:12], walks_tgt[
@@ -185,7 +185,7 @@ def load_subgraph_margin(n_degree, file):
                                                                                                                           13:14]
     walks_tgt = (node_records.astype(int), eidx_records.astype(int), t_records, cat_feat.astype(int), marginal)
 
-    walks_bgd = file["walks_bgd"][:]
+    walks_bgd = file["walks_bgd_new"][:]
     node_records, eidx_records, t_records, cat_feat, marginal = walks_bgd[:, :, :6], walks_bgd[:, :, 6:9], walks_bgd[:,
                                                                                                            :,
                                                                                                            9:12], walks_bgd[
@@ -204,21 +204,21 @@ def load_subgraph_margin(n_degree, file):
 def get_item(input_pack, batch_id):
     subgraph_src, subgraph_tgt, subgraph_bgd, walks_src, walks_tgt, walks_bgd, dst_fake = input_pack
     node_records, eidx_records, t_records = subgraph_src
-    node_records = [np.array(i[batch_id]) for i in node_records]
-    eidx_records = [np.array(i[batch_id]) for i in eidx_records]
-    t_records = [np.array(i[batch_id]) for i in t_records]
+    node_records = [i[batch_id] for i in node_records]
+    eidx_records = [i[batch_id] for i in eidx_records]
+    t_records = [i[batch_id] for i in t_records]
     subgraph_src = (node_records, eidx_records, t_records)
 
     node_records, eidx_records, t_records = subgraph_tgt
-    node_records = [np.array(i[batch_id]) for i in node_records]
-    eidx_records = [np.array(i[batch_id]) for i in eidx_records]
-    t_records = [np.array(i[batch_id]) for i in t_records]
+    node_records = [i[batch_id] for i in node_records]
+    eidx_records = [i[batch_id] for i in eidx_records]
+    t_records = [i[batch_id] for i in t_records]
     subgraph_tgt = (node_records, eidx_records, t_records)
 
     node_records, eidx_records, t_records = subgraph_bgd
-    node_records = [np.array(i[batch_id]) for i in node_records]
-    eidx_records = [np.array(i[batch_id]) for i in eidx_records]
-    t_records = [np.array(i[batch_id]) for i in t_records]
+    node_records = [i[batch_id] for i in node_records]
+    eidx_records = [i[batch_id] for i in eidx_records]
+    t_records = [i[batch_id] for i in t_records]
     subgraph_bgd = (node_records, eidx_records, t_records)
 
     walks_src = [item[batch_id] for item in walks_src]

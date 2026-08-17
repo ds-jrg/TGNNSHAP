@@ -4,16 +4,14 @@ from tqdm import tqdm
 import os.path as osp
 import pandas as pd
 import numpy as np
+from .graph import NeighborFinder
 from .batch_loader import RandEdgeSampler
 
-from ..utils.graph import WalkFinder
+degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30}
 
-from Config.config import CONFIG
-
-CONFIG = CONFIG()
 
 def load_data_shuffle(mode, data):
-    g_df = pd.read_csv(f'{CONFIG.data.folder}/{CONFIG.data.index_file}')
+    g_df = pd.read_csv(osp.join(osp.dirname(osp.realpath(__file__)), '..', 'processed/ml_{}.csv'.format(data)))
     val_time, test_time = list(np.quantile(g_df.ts, [0.70, 0.85]))
 
     src_l = g_df.u.values
@@ -57,13 +55,13 @@ def load_data_shuffle(mode, data):
     for src, dst, eidx, ts in zip(train_src_l, train_dst_l, train_e_idx_l, train_ts_l):
         adj_list[src].append((dst, eidx, ts))
         adj_list[dst].append((src, eidx, ts))
-    train_ngh_finder = WalkFinder(adj_list)
+    train_ngh_finder = NeighborFinder(adj_list)
     # full graph with all the data for the test and validation purpose
     full_adj_list = [[] for _ in range(max_idx + 1)]
     for src, dst, eidx, ts in zip(src_l, dst_l, e_idx_l, ts_l):
         full_adj_list[src].append((dst, eidx, ts))
         full_adj_list[dst].append((src, eidx, ts))
-    full_ngh_finder = WalkFinder(full_adj_list)
+    full_ngh_finder = NeighborFinder(full_adj_list)
     train_rand_sampler = RandEdgeSampler((train_src_l,), (train_dst_l,))
     # val_rand_sampler = RandEdgeSampler((train_src_l, val_src_l), (train_dst_l, val_dst_l))
     test_rand_sampler = RandEdgeSampler((train_src_l, val_src_l, test_src_l), (train_dst_l, val_dst_l, test_dst_l))
@@ -123,7 +121,7 @@ def pre_processing(ngh_finder, sampler, src, dst, ts, val_e_idx_l, num_neighbors
 
 
 def get_null_distribution(data_name):
-    num_neighbors = CONFIG.model.num_neighbors
+    num_neighbors = degree_dict[data_name]
     rand_sampler, test_src_l, test_dst_l, test_ts_l, test_label_l, test_e_idx_l, finder = load_data_shuffle(mode="test", data=data_name)
     num_distribution = pre_processing(finder, rand_sampler, test_src_l, test_dst_l, test_ts_l, test_e_idx_l,num_neighbors)
     return num_distribution

@@ -261,7 +261,9 @@ if "tempme" in selected:
         explainer.preprocess(walk_finder, neg_edge_sampler, train=False)
         print("Preprocessing done.")
 
-    explainer = TempMEExplainer(model, full_neighbor_sampler, full_data)
+    # ``TempMEExplainer`` keeps preprocessing in memory.  Reuse the
+    # already preprocessed full-graph instance instead of constructing a
+    # third instance and losing its walk pack.
     results, timings = evaluate_explainer(explainer, "TempME")
       
     results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_TempME.csv", index=False)

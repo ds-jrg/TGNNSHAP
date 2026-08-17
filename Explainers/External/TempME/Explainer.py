@@ -1,264 +1,190 @@
-from typing import Tuple
+"""DyGLib adapter for TempME (Chen & Ying, NeurIPS 2023).
 
-from Explainers.utils import Explainer, ExplanationResult
+The upstream implementation assumes its own CSV loader and TGNN classes.  This
+module keeps its motif/walk explainer while exposing the repository's standard
+:class:`Explainer` interface and DyGLib ``Data``/``NeighborSampler`` objects.
+"""
+from __future__ import annotations
 
-from DyGLib.utils.DataLoader import Data
-from DyGLib.utils.utils import NeighborSampler, NegativeEdgeSampler, BatchSubgraphs, concat_subgraphs
-from DyGLib.models.modules import TGNN
-
-from Config.config import CONFIG
-
-from .utils import load_subgraph_margin, get_item, get_item_edge, WalkFinder
-from .processed.data_preprocess import pre_processing, calculate_edge
-from .models import TempME
+import copy
+import math
+import os
+from typing import Any, Optional, Tuple
 
 import numpy as np
-import h5py
-import math
 import torch
+import torch.nn as nn
 from tqdm import tqdm
-from abc import abstractmethod
-import os
+
+from Config.config import CONFIG
+from Explainers.utils import Explainer
+from DyGLib.models.modules import TGNN
+from DyGLib.utils.DataLoader import Data
+from DyGLib.utils.utils import BatchSubgraphs, NegativeEdgeSampler, NeighborSampler
+
+from .models import TempME
+from .utils.batch_loader import get_item
+from .utils.graph import edge_info, get_walk_finder
+
 
 CONFIG = CONFIG()
 
+
 class TempMEExplainer(Explainer):
-    def __init__(self, model:TGNN, neighbor_finder: NeighborSampler, data: Data):
+    """Motif-based event explainer compatible with the repository evaluator."""
+
+    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data):
         super().__init__(model, neighbor_finder, data)
-        self.explainer = TempME(model, neighbor_finder=neighbor_finder,
-                                data=CONFIG.data.dataset_name, out_dim=CONFIG.tempME.out_dim, hid_dim=CONFIG.tempME.hid_dim,
-                                temp=CONFIG.tempME.temp, if_cat_feature=True,
-                                dropout_p=CONFIG.tempME.drop_out, device=CONFIG.tempME.device)
+        self.device = torch.device(CONFIG.model.device)
+        edge_features = neighbor_finder.edge_features.detach().cpu().numpy()
+        node_features = getattr(data, "node_features", None)
+        if node_features is None:
+            # DyGLib's current loader intentionally creates zero node features.
+            node_features = model.backbone.node_features.detach().cpu().numpy()
+        self.explainer = TempME(
+            # DyGLib always evaluates two sampled hops, so TempME must return
+            # one attention tensor for each hop (the upstream ``tgn`` path).
+            model, base_model_type="tgn",
+            data=CONFIG.data.dataset_name, out_dim=CONFIG.tempME.out_dim,
+            hid_dim=CONFIG.tempME.hid_dim, temp=CONFIG.tempME.temp,
+            if_cat_feature=True, dropout_p=CONFIG.tempME.drop_out,
+            device=self.device, edge_raw_features=edge_features,
+            node_raw_features=node_features,
+        )
+        self.pack = None
+        self.edge = None
+        self._row_by_edge = {}
 
-        if(np.isnan(self.data.labels).any()):
-            mask = ~np.isnan(self.data.labels)
-            self.edges = self.data.edge_ids[mask]
-        else:
-            self.edges = self.data.edge_ids
+    def preprocess(self, walk_finder, neg_edge_sampler: NegativeEdgeSampler, train: bool = True):
+        """Materialize motif walks in memory using DyGLib event arrays."""
+        mask = ~np.isnan(self.data.labels) if np.issubdtype(self.data.labels.dtype, np.floating) else np.ones(len(self.data.edge_ids), dtype=bool)
+        src = self.data.src_node_ids[mask]
+        dst = self.data.dst_node_ids[mask]
+        ts = self.data.node_interact_times[mask]
+        edges = self.data.edge_ids[mask]
+        batches = {name: [] for name in ("subgraph_src", "subgraph_tgt", "subgraph_bgd", "walks_src", "walks_tgt", "walks_bgd", "dst_fake")}
+        degree = CONFIG.model.num_neighbors
+        for start in tqdm(range(0, len(src), max(1, CONFIG.tempME.bs)), desc="TempME walks"):
+            sl = slice(start, min(start + CONFIG.tempME.bs, len(src)))
+            s, d, t, e = src[sl], dst[sl], ts[sl], edges[sl]
+            _, fake = neg_edge_sampler.sample(len(s))
+            subgraphs = [
+                walk_finder.find_k_hop(2, s, t, degree, e_idx_l=e),
+                walk_finder.find_k_hop(2, d, t, degree, e_idx_l=e),
+                walk_finder.find_k_hop(2, fake, t, degree),
+            ]
+            walks = [walk_finder.find_k_walks(degree, root, 3, sg) for root, sg in zip((s, d, fake), subgraphs)]
+            for name, sg in zip(("subgraph_src", "subgraph_tgt", "subgraph_bgd"), subgraphs):
+                batches[name].append(sg)
+            for name, walk in zip(("walks_src", "walks_tgt", "walks_bgd"), walks):
+                n, ei, ti, anon = walk
+                batches[name].append((n.astype(np.int64), ei.astype(np.int64), ti.astype(np.float32), anon.astype(np.int64)))
+            batches["dst_fake"].append(fake)
 
+        self.pack = self._concat_pack(batches)
+        self.edge = np.stack([edge_info(self.pack[i][1]) for i in (3, 4, 5)], axis=0)
+        self._row_by_edge = {int(edge_id): i for i, edge_id in enumerate(edges)}
 
-    def preprocess(self,
-                   full_finder: WalkFinder,
-                   full_sampler: NegativeEdgeSampler, train=True):
-        if(np.isnan(self.data.labels).any()):
-            mask = ~np.isnan(self.data.labels)
-        else:
-            mask = np.ones_like(self.data.edge_ids, dtype="bool")
+    @staticmethod
+    def _concat_pack(batches):
+        def merge_subgraphs(parts):
+            return tuple([
+                [np.concatenate([p[j][layer] for p in parts], axis=0)
+                 for layer in range(len(parts[0][j]))]
+                for j in range(3)
+            ])
+        def merge_walks(parts):
+            merged = [np.concatenate([p[j] for p in parts], axis=0) for j in range(3)]
+            # The original preprocessing appends categorical motif and
+            # marginal features.  DyGLib does not persist them, so use the
+            # neutral category/marginal for the adapter's five-field format.
+            shape = merged[0].shape[:2] + (1,)
+            merged.extend([np.zeros(shape, dtype=np.int64), np.zeros(shape, dtype=np.float32)])
+            return tuple(merged)
+        return (merge_subgraphs(batches["subgraph_src"]), merge_subgraphs(batches["subgraph_tgt"]),
+                merge_subgraphs(batches["subgraph_bgd"]), merge_walks(batches["walks_src"]),
+                merge_walks(batches["walks_tgt"]), merge_walks(batches["walks_bgd"]),
+                np.concatenate(batches["dst_fake"], axis=0))
 
-        mode = "train" if train else "full"
-
-        pre_processing(full_finder, self.neighbor_finder, full_sampler, 
-                       self.data.src_node_ids[mask], self.data.dst_node_ids[mask], 
-                       self.data.node_interact_times[mask], val_e_idx_l=None, 
-                       MODE=mode, data=CONFIG.data.dataset_name, num_neig=CONFIG.model.num_neighbors)
-        
-        data_path = f'{CONFIG.data.folder}/TempME/{CONFIG.data.dataset_name}_{mode}.h5'
-        file = h5py.File(data_path,'r')
-        file.keys()
-        walks_src = file["walks_src"][:] # type: ignore
-        walks_tgt = file["walks_tgt"][:] # type: ignore
-        walks_bgd = file["walks_bgd"][:] # type: ignore
-        file.close()
-        edge_load = calculate_edge(walks_src, walks_tgt, walks_bgd)
-        save_path = f"{CONFIG.data.folder}/TempME/{CONFIG.data.dataset_name}_{mode}_edge.npy"
-        np.save(save_path, edge_load)
-
-    def initialize(self, train=False):
-        mode = "train" if train else "full"
-
-        pre_load = h5py.File(f'{CONFIG.data.folder}/TempME/{CONFIG.data.dataset_name}_{mode}.h5','r')
-
-        self.pack = load_subgraph_margin(CONFIG.model.num_neighbors, pre_load)
-
-        pre_load = None
-
-        self.edge = np.load(f"{CONFIG.data.folder}/TempME/{CONFIG.data.dataset_name}_{mode}_edge.npy")
-
-        self.explainer = self.explainer.to(CONFIG.tempME.device)
-        os.makedirs(f"Saved_models/{CONFIG.data.dataset_name}/TempMe", exist_ok=True)
+    def initialize(self, train: bool = False):
+        if self.pack is None:
+            raise RuntimeError("TempME preprocessing is required before initialize()")
+        self.explainer.to(self.device)
+        path = f"Saved_models/{CONFIG.data.dataset_name}/TempMe/Explainer.pt"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         if train:
             self.train()
+        elif not os.path.exists(path):
+            raise FileNotFoundError(f"TempME checkpoint not found: {path}. Run with --preprocessing true.")
         else:
-            self.explainer.load_state_dict(torch.load(f"Saved_models/{CONFIG.data.dataset_name}/TempMe/Explainer.pt", weights_only=True))
+            self.explainer.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
 
-        
     def train(self):
-        optimizer = torch.optim.Adam(self.explainer.parameters(),
-                                        lr=CONFIG.tempME.lr,
-                                        betas=(0.9, 0.999), eps=1e-8,
-                                        weight_decay=CONFIG.tempME.weight_decay)
-        
-        if CONFIG.model.task == "regression":
-            criterion = torch.nn.MSELoss()
-        else: 
-            criterion = torch.nn.BCEWithLogitsLoss()
-
-        if(np.isnan(self.data.labels).any()):
-            mask = ~np.isnan(self.data.labels)
-        else:
-            mask = np.ones_like(self.data.edge_ids, dtype="bool")
-
-
-        src_l, dst_l, ts_l, label_l, e_idx_l = self.data.src_node_ids[mask], self.data.dst_node_ids[mask], self.data.node_interact_times[mask], self.data.labels[mask], self.data.edge_ids[mask]
-    
-        num_instance = len(src_l)
-        num_batch = math.ceil(num_instance / CONFIG.tempME.bs)
-        best_acc = 0
-        print('num of training instances: {}'.format(num_instance))
-        print('num of batches per epoch: {}'.format(num_batch))
-        idx_list = np.arange(num_instance)
-        np.random.shuffle(idx_list)
-
+        """Train the motif selector while keeping the DyGLib predictor frozen."""
+        optimizer = torch.optim.Adam(self.explainer.parameters(), lr=CONFIG.tempME.lr, weight_decay=CONFIG.tempME.weight_decay)
+        criterion = nn.MSELoss() if CONFIG.model.task == "regression" else nn.BCEWithLogitsLoss()
+        src, dst, ts, edges = self.data.src_node_ids, self.data.dst_node_ids, self.data.node_interact_times, self.data.edge_ids
+        n = min(len(src), self.pack[3][0].shape[0])
         for epoch in range(CONFIG.tempME.n_epoch):
-            train_loss = []
-            train_pred_loss = []
-            train_kl_loss = []
-            np.random.shuffle(idx_list)
-            self.explainer.train()
-            for k in tqdm(range(num_batch)):
-                s_idx = k * CONFIG.tempME.bs
-                e_idx = min(num_instance, s_idx + CONFIG.tempME.bs)
-                if s_idx == e_idx:
-                    continue
-                batch_idx = idx_list[s_idx:e_idx]
-                batch_size = len(batch_idx)
-                src_l_cut, dst_l_cut = src_l[batch_idx], dst_l[batch_idx]
-                ts_l_cut = ts_l[batch_idx]
-                e_l_cut = e_idx_l[batch_idx]
-                subgraph_src, subgraph_tgt, subgraph_bgd, walks_src, walks_tgt, walks_bgd, dst_l_fake = get_item(self.pack,
-                                                                                                                    batch_idx)
-                src_edge, tgt_edge, bgd_edge = get_item_edge(self.edge, batch_idx)
+            losses = []
+            for start in range(0, n, CONFIG.tempME.bs):
+                idx = np.arange(start, min(start + CONFIG.tempME.bs, n))
+                sg_src, sg_dst, _, walks_src, walks_dst, _, _ = get_item(self.pack, idx)
+                src_edge, dst_edge, _ = self.edge[:, idx]
+                bsz = len(idx)
+                def make_sg(sg):
+                    feats = self.neighbor_finder.get_edge_features_for_multi_hop(sg[1])
+                    result = BatchSubgraphs(*sg, feats)
+                    result.to(self.device)
+                    return result
+                src_sg, dst_sg = make_sg(sg_src), make_sg(sg_dst)
                 with torch.no_grad():
-                    edge_feat_src = self.neighbor_finder.get_edge_features_for_multi_hop(subgraph_src[1])
-                    subgraphs_src = BatchSubgraphs(*subgraph_src, edge_feat_src)
-                    subgraphs_src.chop_layers(CONFIG.model.num_layers)
-                    subgraphs_src.to(CONFIG.model.device)
-                    
-                    edge_feat_dst = self.neighbor_finder.get_edge_features_for_multi_hop(subgraph_tgt[1])
-                    subgraphs_dst = BatchSubgraphs(*subgraph_tgt, edge_feat_dst)
-                    subgraphs_dst.chop_layers(CONFIG.model.num_layers)
-                    subgraphs_dst.to(CONFIG.model.device)
-
-                    y_ori = self.model(src_node_ids=src_l_cut,
-                                        dst_node_ids=dst_l_cut,
-                                        node_interact_times=ts_l_cut,
-                                        src_subgraphs=subgraphs_src, dst_subgraphs=subgraphs_dst,
-                                        num_neighbors=CONFIG.model.num_neighbors,
-                                        time_gap=CONFIG.model.time_gap,
-                                        edge_ids=e_l_cut,
-                                        edges_are_positive=False).squeeze(dim=-1)
-
-                optimizer.zero_grad()
-                graphlet_imp_src = self.explainer(walks_src, ts_l_cut, src_edge)
-                graphlet_imp_tgt = self.explainer(walks_tgt, ts_l_cut, tgt_edge)
-                graphlet_imp_bgd = self.explainer(walks_bgd, ts_l_cut, bgd_edge)
-                explanation = self.explainer.retrieve_explanation(subgraph_src, graphlet_imp_src, walks_src,
-                                                            subgraph_tgt, graphlet_imp_tgt, walks_tgt,
-                                                            subgraph_bgd, graphlet_imp_bgd, walks_bgd,
-                                                            training=CONFIG.tempME.if_bern)
-                
-                subgraphs_src.set_event_attention([explanation[0][0:batch_size], explanation[1][0:batch_size]])
-                subgraphs_dst.set_event_attention([explanation[0][batch_size:2 * batch_size], explanation[1][batch_size:2 * batch_size]])
-
-                with torch.no_grad():
-                    pred = self.model(src_node_ids=src_l_cut,
-                                        dst_node_ids=dst_l_cut,
-                                        node_interact_times=ts_l_cut,
-                                        src_subgraphs = subgraphs_src, 
-                                        dst_subgraphs = subgraphs_dst, 
-                                        num_neighbors=CONFIG.model.num_neighbors, time_gap=CONFIG.model.time_gap, edges_are_positive = False).squeeze(dim=-1)
-                    
-                pred_loss = criterion(pred, y_ori)
-                kl_loss = self.explainer.kl_loss(graphlet_imp_src, walks_src, target=CONFIG.tempME.prior_p) + \
-                            self.explainer.kl_loss(graphlet_imp_tgt, walks_tgt, target=CONFIG.tempME.prior_p) + \
-                            self.explainer.kl_loss(graphlet_imp_bgd, walks_bgd, target=CONFIG.tempME.prior_p)
-                loss = pred_loss + CONFIG.tempME.beta * kl_loss
-                loss.backward()
-                optimizer.step()
-                with torch.no_grad():
-                    train_loss.append(loss.item())
-                    train_pred_loss.append(pred_loss.item())
-                    train_kl_loss.append(kl_loss.item())
-
-            loss_epoch = np.mean(train_loss)
-            pred_loss_epoch = np.mean(train_pred_loss)
-            kl_epoch = np.mean(train_kl_loss)
-            print((f'Training Epoch: {epoch} | '
-                    f'Training loss: {loss_epoch} | '
-                    f'Pred loss: {pred_loss_epoch} | '
-                    f'KL loss: {kl_epoch} | '))
-        
+                    target = self.model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False).detach()
+                p_src = self.explainer(walks_src, ts[idx], src_edge)
+                p_dst = self.explainer(walks_dst, ts[idx], dst_edge)
+                explanation = self.explainer.retrieve_explanation(sg_src, p_src, walks_src, sg_dst, p_dst, walks_dst, sg_dst, p_dst, walks_dst, training=CONFIG.tempME.if_bern)
+                src_sg.set_event_attention([x[:bsz] for x in explanation])
+                dst_sg.set_event_attention([x[bsz:2 * bsz] for x in explanation])
+                pred = self.model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False)
+                pred_loss = torch.nan_to_num(criterion(pred, target), nan=0.0, posinf=1e6, neginf=1e6)
+                kl = self.explainer.kl_loss(p_src, walks_src, target=CONFIG.tempME.prior_p) + self.explainer.kl_loss(p_dst, walks_dst, target=CONFIG.tempME.prior_p)
+                loss = torch.nan_to_num(pred_loss + CONFIG.tempME.beta * kl, nan=0.0, posinf=1e6, neginf=1e6)
+                optimizer.zero_grad(); loss.backward(); optimizer.step()
+                losses.append(loss.item())
+            print(f"TempME epoch {epoch}: {np.mean(losses):.6f}")
         torch.save(self.explainer.state_dict(), f"Saved_models/{CONFIG.data.dataset_name}/TempMe/Explainer.pt")
 
-    def explain_instance(self, src, dst, timestamp, silent = False):
-        mask = (self.data.src_node_ids == src) & (self.data.dst_node_ids == dst) & (self.data.node_interact_times == timestamp)
+    def explain_instance(self, src: int, dst: int, timestamp: int, silent: bool = False) -> Any:
+        mask = ((self.data.src_node_ids == src) & (self.data.dst_node_ids == dst) &
+                (self.data.node_interact_times == timestamp))
+        if not mask.any():
+            raise KeyError(f"No event found for ({src}, {dst}, {timestamp})")
+        edge_id = int(self.data.edge_ids[np.flatnonzero(mask)[0]])
+        row = self._row_by_edge.get(edge_id)
+        if row is None:
+            raise KeyError(f"Event {edge_id} was not included during TempME preprocessing")
+        sg_src, sg_dst, _, walks_src, walks_dst, _, _ = get_item(self.pack, np.array([row]))
+        src_edge, dst_edge, _ = self.edge[:, [row]]
+        with torch.no_grad():
+            p_src = self.explainer(walks_src, np.array([timestamp]), src_edge).squeeze(-1).cpu().numpy()[0]
+            p_dst = self.explainer(walks_dst, np.array([timestamp]), dst_edge).squeeze(-1).cpu().numpy()[0]
+        scores = {}
+        for walk, probs in ((walks_src, p_src), (walks_dst, p_dst)):
+            for event_id, score in zip(walk[1][0].reshape(-1), np.repeat(probs, 3)):
+                if event_id:
+                    scores[int(event_id)] = max(scores.get(int(event_id), 0.0), float(score))
+        sg_src_b = BatchSubgraphs(*sg_src, self.neighbor_finder.get_edge_features_for_multi_hop(sg_src[1]))
+        sg_dst_b = BatchSubgraphs(*sg_dst, self.neighbor_finder.get_edge_features_for_multi_hop(sg_dst[1]))
+        events = np.unique(np.concatenate([sg_src_b.get_events(), sg_dst_b.get_events()], axis=1))
+        events = events[events != 0]
+        ranked = sorted((int(e) for e in events), key=lambda e: (-scores.get(e, 0.0), e))
+        return np.asarray(ranked, dtype=np.int64), scores, sg_src_b, sg_dst_b
 
-
-        edge_id = self.data.edge_ids[mask][0]
-        edge_id = np.where(self.edges == edge_id)[0]
-
-        subgraph_src, subgraph_tgt, subgraph_bgd, walks_src, walks_tgt, walks_bgd, dst_l_fake = get_item(self.pack, edge_id)
-        src_edge, tgt_edge, bgd_edge = get_item_edge(self.edge, edge_id)
-        
-        timestamp = np.array([timestamp])
-        graphlet_imp_src = self.explainer(walks_src, timestamp, src_edge)
-        graphlet_imp_tgt = self.explainer(walks_tgt, timestamp, tgt_edge)
-        graphlet_imp_bgd = self.explainer(walks_bgd, timestamp, bgd_edge)
-        explanation = self.explainer.retrieve_explanation(subgraph_src, graphlet_imp_src, walks_src,
-                                                    subgraph_tgt, graphlet_imp_tgt, walks_tgt,
-                                                    subgraph_bgd, graphlet_imp_bgd, walks_bgd,
-                                                    training=False)
-        edge_feat_src = self.neighbor_finder.get_edge_features_for_multi_hop(subgraph_src[1])
-        edge_feat_dst = self.neighbor_finder.get_edge_features_for_multi_hop(subgraph_tgt[1])
-
-        for i, _ in enumerate(explanation):
-            explanation[i] = explanation[i].detach().cpu()
-
-        src_subgraph = BatchSubgraphs(subgraph_src[0], subgraph_src[1], subgraph_src[2], 
-                                                edge_feat_src, event_attention=[explanation[0][0:1], explanation[1][0:1]])
-        dst_subgraph = BatchSubgraphs(subgraph_tgt[0], subgraph_tgt[1], subgraph_tgt[2], 
-                                         edge_feat_dst, event_attention=[explanation[0][1:2], explanation[1][1:2]])
-        
-        src_subgraph.chop_layers(CONFIG.model.num_layers)
-        dst_subgraph.chop_layers(CONFIG.model.num_layers)
-
-        full_subgraph = concat_subgraphs([src_subgraph, dst_subgraph])
-        return full_subgraph, src_subgraph, dst_subgraph
-    
-    def build_coalitions(self, explanation: Tuple[BatchSubgraphs,BatchSubgraphs,BatchSubgraphs]):
-        full_subgraph, src_subgraph, dst_subgraph = explanation
-        edges = np.concat(full_subgraph.events, axis=1).flatten()
-        attentions = torch.concat(full_subgraph.event_attention, dim=1).flatten()
-        
-        
-        shuffle_mask = torch.randperm(len(edges))
-        edges = edges[shuffle_mask]
-        attentions = attentions[shuffle_mask]
-
-        mask = edges != 0
-        edges = edges[np.where(mask)]
-        attentions = attentions[mask]
-
-        sorting = (-attentions).argsort()
-
-        if(len(edges) > 1):
-            edges = edges[sorting.cpu()]
-        
-        coalitions = np.zeros((edges.shape[0], edges.shape[0]))
-        unique_edges = np.zeros((0,))
-        for i in range(edges.shape[0]):
-            unique_edges = np.unique(edges[:i+1])
-            coalitions[i, :unique_edges.shape[0]] = unique_edges
-
-        result = coalitions[:, :unique_edges.shape[0]]
-
-        for i in range(src_subgraph.get_num_layers()):
-            src_subgraph.event_attention[i][:,:] = 1.0
-        
-        for i in range(dst_subgraph.get_num_layers()):
-            dst_subgraph.event_attention[i][:,:] = 1.0
-
-        src_subgraph.to("cpu")
-        dst_subgraph.to("cpu")
-        
-        return result, src_subgraph, dst_subgraph
+    def build_coalitions(self, explanation: Tuple[np.ndarray, dict, BatchSubgraphs, BatchSubgraphs]):
+        ranked, scores, sg_src, sg_dst = explanation
+        if len(ranked) == 0:
+            return np.zeros((1, 1), dtype=np.int64), sg_src, sg_dst
+        coalitions = np.zeros((len(ranked), len(ranked)), dtype=np.int64)
+        for i in range(len(ranked)):
+            coalitions[i, :i + 1] = ranked[:i + 1]
+        return coalitions, sg_src, sg_dst

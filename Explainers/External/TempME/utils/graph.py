@@ -4,17 +4,13 @@ import torch
 import math
 from numba import jit
 import logging
-
 from typing import Optional
-
-from DyGLib.utils.DataLoader import Data
-
 numba_logger = logging.getLogger('numba')
 numba_logger.setLevel(logging.WARNING)
 PRECISION = 5
 
 
-class WalkFinder:
+class NeighborFinder:
     def __init__(self, adj_list, bias=0, ts_precision=PRECISION, use_cache=False, sample_method='multinomial', device=None):
         """
         Params
@@ -35,7 +31,6 @@ class WalkFinder:
         self.ts_precision = ts_precision
         self.sample_method = sample_method
         self.device = device
-        
     def init_off_set(self, adj_list):
         """
         Params
@@ -219,27 +214,21 @@ class WalkFinder:
                 i] if e_idx_l is not None else None, return_binary_prob=(self.sample_method == 'binary'))
             if len(ngh_idx) == 0:  # no previous neighbors, return padding index
                 continue
-            if len(ngh_idx)<=num_neighbor:
-                num_repeats = (num_neighbor % len(ngh_idx)) + 1
-                out_ngh_node_batch[i, :len(ngh_idx)] = np.tile(ngh_idx, num_repeats)[:len(ngh_idx)]
-                out_ngh_t_batch[i, :len(ngh_idx)] = np.tile(ngh_ts, num_repeats)[:len(ngh_idx)]
-                out_ngh_eidx_batch[i, :len(ngh_idx)] = np.tile(ngh_eidx, num_repeats)[:len(ngh_idx)]
-            else:
-                if ngh_binomial_prob is None:  # self.sample_method is multinomial [ours!!!]
-                    if math.isclose(self.bias, 0):
-                        sampled_idx = np.sort(np.random.randint(0, len(ngh_idx), num_neighbor))
-                    else:
-                        time_delta = cut_time - ngh_ts
-                        sampling_weight = np.exp(- self.bias * time_delta)
-                        sampling_weight = sampling_weight / sampling_weight.sum()  # normalize
-                        sampled_idx = np.sort(
-                            np.random.choice(np.arange(len(ngh_idx)), num_neighbor, replace=True, p=sampling_weight))
+            if ngh_binomial_prob is None:  # self.sample_method is multinomial [ours!!!]
+                if math.isclose(self.bias, 0):
+                    sampled_idx = np.sort(np.random.randint(0, len(ngh_idx), num_neighbor))
                 else:
-                    # get a bunch of sampled idx by using sequential binary comparison, may need to be written in C later on
-                    sampled_idx = seq_binary_sample(ngh_binomial_prob, num_neighbor)
-                out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
-                out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
-                out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
+                    time_delta = cut_time - ngh_ts
+                    sampling_weight = np.exp(- self.bias * time_delta)
+                    sampling_weight = sampling_weight / sampling_weight.sum()  # normalize
+                    sampled_idx = np.sort(
+                        np.random.choice(np.arange(len(ngh_idx)), num_neighbor, replace=True, p=sampling_weight))
+            else:
+                # get a bunch of sampled idx by using sequential binary comparison, may need to be written in C later on
+                sampled_idx = seq_binary_sample(ngh_binomial_prob, num_neighbor)
+            out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
+            out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
+            out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
 
     def find_k_hop(self, k, src_idx_l, cut_time_l, num_neighbors, e_idx_l=None):
@@ -256,9 +245,8 @@ class WalkFinder:
             ngh_node_est = ngh_node_est.flatten()
             ngh_e_est = ngh_e_est.flatten()  #[batch * num_neighbors]
             ngh_t_est = ngh_t_est.flatten()
-            timing = cut_time_l.repeat(num_neighbors**layer_i)
             out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch = self.get_temporal_neighbor(ngh_node_est,
-                                                                                                 timing,
+                                                                                                 ngh_t_est,
                                                                                                  num_neighbors,
                                                                                                  e_idx_l=ngh_e_est)
 
@@ -275,7 +263,7 @@ class WalkFinder:
         # first: (batch, num_neighbors), second: [batch, num_neighbors * num_neighbors]
 
 
-    def find_k_walks(self, degree, src_idx_l, num_neighbors, subgraph_src, ts=None):
+    def find_k_walks(self, degree, src_idx_l, num_neighbors, subgraph_src):
         '''
 
         :param degree: degree
@@ -296,10 +284,10 @@ class WalkFinder:
         n_id_src_1 = np.expand_dims(src_idx_l, axis=1).repeat(num_1 * num_neighbors, axis=1)  #[B, N1 * N2]
         ngh_node_est = n_id_tgt_1.flatten()
         ngh_e_est = e_id_1.flatten()  #[batch * N1]
-        ngh_t_est = t_id_1.flatten() if ts is None else ts.repeat(num_1)
+        ngh_t_est = t_id_1.flatten()
         n_id_tgt_1 = n_id_tgt_1.repeat(num_neighbors, axis=1)  #[B, N1 * N2]
         e_id_1 = e_id_1.repeat(num_neighbors, axis=1)
-        t_id_1 = t_id_1.repeat(num_neighbors, axis=1) 
+        t_id_1 = t_id_1.repeat(num_neighbors, axis=1)
         n_id_src_2, n_id_tgt_2, e_id_2, t_id_2 = self.get_next_step(ngh_node_est, ngh_t_est, num_neighbors, degree, e_idx_l=ngh_e_est, source_id=src_idx_l)
         #each: [B*N1, N2]
         n_id_src_2 = n_id_src_2.reshape(batch, -1)
@@ -488,26 +476,24 @@ class WalkFinder:
 
         return (out_src_node_batch, out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch, out_anony)
 
-def get_walk_finder(data: Data):
-    """
-    get neighbor sampler
-    :param data: Data
-    :param sample_neighbor_strategy: str, how to sample historical neighbors, 'uniform', 'recent', or 'time_interval_aware''
-    :param time_scaling_factor: float, a hyper-parameter that controls the sampling preference with time interval,
-    a large time_scaling_factor tends to sample more on recent links, this parameter works when sample_neighbor_strategy == 'time_interval_aware'
-    :param seed: int, random seed
-    :return:
-    """
-    max_node_id = max(data.src_node_ids.max(), data.dst_node_ids.max())
-    # the adjacency vector stores edges for each node (source or destination), undirected
-    # adj_list, list of list, where each element is a list of triple tuple (node_id, edge_id, timestamp)
-    # the list at the first position in adj_list is empty
-    adj_list = [[] for _ in range(max_node_id + 1)]
-    for src_node_id, dst_node_id, edge_id, node_interact_time in zip(data.src_node_ids, data.dst_node_ids, data.edge_ids, data.node_interact_times):
-        adj_list[src_node_id].append((dst_node_id, edge_id, node_interact_time))
-        adj_list[dst_node_id].append((src_node_id, edge_id, node_interact_time))
 
-    return WalkFinder(adj_list=adj_list)
+def get_walk_finder(data) -> NeighborFinder:
+    """Build TempME's walk sampler from DyGLib's canonical event arrays."""
+    max_node_id = int(max(data.src_node_ids.max(), data.dst_node_ids.max()))
+    adjacency = [[] for _ in range(max_node_id + 1)]
+    for src, dst, edge_id, timestamp in zip(
+            data.src_node_ids, data.dst_node_ids, data.edge_ids,
+            data.node_interact_times):
+        adjacency[int(src)].append((int(dst), int(edge_id), float(timestamp)))
+        adjacency[int(dst)].append((int(src), int(edge_id), float(timestamp)))
+    return NeighborFinder(adjacency)
+
+
+def edge_info(edge_ids: np.ndarray) -> np.ndarray:
+    """Return the edge co-occurrence tensor consumed by the TempME model."""
+    edge_ids = np.asarray(edge_ids)
+    return (edge_ids[:, :, :, None] == edge_ids[:, :, None, :]).astype(np.float32)
+
 
 
 

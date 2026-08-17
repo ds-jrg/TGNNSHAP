@@ -11,13 +11,7 @@ import pickle
 import torch
 import pandas as pd
 import numpy as np
-from DyGLib.utils.utils import NeighborSampler, NegativeEdgeSampler
-from Config.config import CONFIG
-import os
-
-from ..utils.graph import WalkFinder
-
-CONFIG = CONFIG()
+from utils import NeighborFinder
 
 degree_dict = {"wikipedia":20, "reddit":20 ,"uci":30 ,"mooc":60, "enron": 30, "canparl": 30, "uslegis": 30}
 
@@ -62,16 +56,16 @@ def load_data(mode, data):
     for src, dst, eidx, ts in zip(train_src_l, train_dst_l, train_e_idx_l, train_ts_l):
         adj_list[src].append((dst, eidx, ts))
         adj_list[dst].append((src, eidx, ts))
-    train_ngh_finder = NeighborSampler(adj_list)
+    train_ngh_finder = NeighborFinder(adj_list)
     # full graph with all the data for the test and validation purpose
     full_adj_list = [[] for _ in range(max_idx + 1)]
     for src, dst, eidx, ts in zip(src_l, dst_l, e_idx_l, ts_l):
         full_adj_list[src].append((dst, eidx, ts))
         full_adj_list[dst].append((src, eidx, ts))
-    full_ngh_finder = NeighborSampler(full_adj_list)
-    train_rand_sampler = NegativeEdgeSampler((train_src_l,), (train_dst_l,))
-    # val_rand_sampler = NegativeEdgeSampler((train_src_l, val_src_l), (train_dst_l, val_dst_l))
-    test_rand_sampler = NegativeEdgeSampler((train_src_l, val_src_l, test_src_l), (train_dst_l, val_dst_l, test_dst_l))
+    full_ngh_finder = NeighborFinder(full_adj_list)
+    train_rand_sampler = RandEdgeSampler((train_src_l,), (train_dst_l,))
+    # val_rand_sampler = RandEdgeSampler((train_src_l, val_src_l), (train_dst_l, val_dst_l))
+    test_rand_sampler = RandEdgeSampler((train_src_l, val_src_l, test_src_l), (train_dst_l, val_dst_l, test_dst_l))
     if mode == "test":
         return test_rand_sampler, test_src_l, test_dst_l, test_ts_l, test_label_l, test_e_idx_l, full_ngh_finder
     else:
@@ -98,38 +92,36 @@ def statistic(out_anony):
 
 
 
-def pre_processing(full_walk_finder: WalkFinder, full_ngh_finder: NeighborSampler, sampler: NegativeEdgeSampler, src, dst, ts, val_e_idx_l, MODE="test", data="reddit", num_neig=20):
+def pre_processing(full_ngh_finder, sampler, src, dst, ts, val_e_idx_l, MODE="test", data="reddit"):
     load_dict = {}
     save_dict = {}
     for item in ["subgraph_src_0", "subgraph_src_1", "subgraph_tgt_0", "subgraph_tgt_1",  "subgraph_bgd_0", "subgraph_bgd_1", "walks_src", "walks_tgt", "walks_bgd", "dst_fake"]:
         load_dict[item] = []
     num_test_instance = len(src)
     print("start extracting subgraph")
-    for k in tqdm(range(num_test_instance)):
+    for k in tqdm(range(num_test_instance-1)):
         src_l_cut = src[k:k+1]
-        if (src_l_cut == [16]):
-            x = 1
         dst_l_cut = dst[k:k+1]
         ts_l_cut = ts[k:k+1]
         e_l_cut = val_e_idx_l[k:k+1] if (val_e_idx_l is not None) else None
         size = len(src_l_cut)
         src_l_fake, dst_l_fake = sampler.sample(size)
         load_dict["dst_fake"].append(dst_l_fake)
-        subgraph_src = full_ngh_finder.get_multi_hop_neighbors(2, src_l_cut, ts_l_cut, num_neig)  #first: (batch, num_neighbors), second: [batch, num_neighbors * num_neighbors]
+        subgraph_src = ngh_finder.find_k_hop(src_l_cut, ts_l_cut, e_idx_l=e_l_cut)  #first: (batch, num_neighbors), second: [batch, num_neighbors * num_neighbors]
         node_records, eidx_records, t_records = subgraph_src
         load_dict["subgraph_src_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_src_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        subgraph_tgt = full_ngh_finder.get_multi_hop_neighbors(2, dst_l_cut, ts_l_cut, num_neig)
+        subgraph_tgt = ngh_finder.find_k_hop(dst_l_cut, ts_l_cut, e_idx_l=e_l_cut)
         node_records, eidx_records, t_records = subgraph_tgt
         load_dict["subgraph_tgt_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_tgt_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        subgraph_bgd = full_ngh_finder.get_multi_hop_neighbors(2, dst_l_fake, ts_l_cut, num_neig)
+        subgraph_bgd = ngh_finder.find_k_hop(dst_l_fake, ts_l_cut, e_idx_l=None)
         node_records, eidx_records, t_records = subgraph_bgd
         load_dict["subgraph_bgd_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_bgd_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        walks_src = full_walk_finder.find_k_walks(num_neig, src_l_cut, num_neighbors=3, subgraph_src=subgraph_src)
-        walks_tgt = full_walk_finder.find_k_walks(num_neig, dst_l_cut, num_neighbors=3, subgraph_src=subgraph_tgt)
-        walks_bgd = full_walk_finder.find_k_walks(num_neig, dst_l_fake, num_neighbors=3, subgraph_src=subgraph_bgd)
+        walks_src = ngh_finder.find_k_walks(NUM_NEIGHBORS, src_l_cut, num_neighbors=3, subgraph_src=subgraph_src)
+        walks_tgt = ngh_finder.find_k_walks(NUM_NEIGHBORS, dst_l_cut, num_neighbors=3, subgraph_src=subgraph_tgt)
+        walks_bgd = ngh_finder.find_k_walks(NUM_NEIGHBORS, dst_l_fake, num_neighbors=3, subgraph_src=subgraph_bgd)
         node_records, eidx_records, t_records, out_anony = walks_src
         load_dict["walks_src"].append(np.concatenate([node_records, eidx_records, t_records, out_anony], axis=-1))  #append([1, num_walks, 6+3+3+3])
         node_records, eidx_records, t_records, out_anony = walks_tgt
@@ -140,8 +132,7 @@ def pre_processing(full_walk_finder: WalkFinder, full_ngh_finder: NeighborSample
                  "subgraph_bgd_1", "walks_src", "walks_tgt", "walks_bgd", "dst_fake"]:
         save_dict[item] = np.concatenate(load_dict[item], axis=0)
 
-    os.makedirs(f"{CONFIG.data.folder}/TempME/", exist_ok=True)
-    hf = h5py.File(f"{CONFIG.data.folder}/TempME/{data}_{MODE}.h5", "w")
+    hf = h5py.File(f"{data}_{MODE}.h5", "w")
     for item in ["subgraph_src_0", "subgraph_src_1", "subgraph_tgt_0", "subgraph_tgt_1", "subgraph_bgd_0",
                  "subgraph_bgd_1", "walks_src", "walks_tgt", "walks_bgd","dst_fake"]:
         hf.create_dataset(item, data=save_dict[item])

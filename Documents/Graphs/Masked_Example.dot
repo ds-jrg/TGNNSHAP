@@ -27,7 +27,7 @@ digraph G {
                 <TD><B>t = 5</B></TD>
             </TR>
         </TABLE>
-        >]
+        >, style=dashed]
     A1 -> A [label=<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
             <TR>

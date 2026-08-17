@@ -1,6 +1,6 @@
 ModelConfig:
   model_name: TGAT
-  device: "cuda:0"
+  device: "mps"
   num_neighbors: 5
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6
@@ -38,7 +38,7 @@ TrainConfig:
   optimizer: Adam
   weight_decay: 0.005
   patience: 100
-  learning_rate: 0.001
+  learning_rate: 0.0001
   val_ratio: 0.15
   test_ratio: 0.15
   num_runs: 1
