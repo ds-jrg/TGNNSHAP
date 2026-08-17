@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+import pickle
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -55,13 +56,14 @@ class TempMEExplainer(Explainer):
         self.edge = None
         self._row_by_edge = {}
 
-    def preprocess(self, walk_finder, neg_edge_sampler: NegativeEdgeSampler, train: bool = True):
+    @staticmethod
+    def preprocess(data: Data, walk_finder, neg_edge_sampler: NegativeEdgeSampler):
         """Materialize motif walks in memory using DyGLib event arrays."""
-        mask = ~np.isnan(self.data.labels) if np.issubdtype(self.data.labels.dtype, np.floating) else np.ones(len(self.data.edge_ids), dtype=bool)
-        src = self.data.src_node_ids[mask]
-        dst = self.data.dst_node_ids[mask]
-        ts = self.data.node_interact_times[mask]
-        edges = self.data.edge_ids[mask]
+        mask = ~np.isnan(data.labels) if np.issubdtype(data.labels.dtype, np.floating) else np.ones(len(data.edge_ids), dtype=bool)
+        src = data.src_node_ids[mask]
+        dst = data.dst_node_ids[mask]
+        ts = data.node_interact_times[mask]
+        edges = data.edge_ids[mask]
         batches = {name: [] for name in ("subgraph_src", "subgraph_tgt", "subgraph_bgd", "walks_src", "walks_tgt", "walks_bgd", "dst_fake")}
         degree = CONFIG.model.num_neighbors
         for start in tqdm(range(0, len(src), max(1, CONFIG.tempME.bs)), desc="TempME walks"):
@@ -81,9 +83,86 @@ class TempMEExplainer(Explainer):
                 batches[name].append((n.astype(np.int64), ei.astype(np.int64), ti.astype(np.float32), anon.astype(np.int64)))
             batches["dst_fake"].append(fake)
 
-        self.pack = self._concat_pack(batches)
-        self.edge = np.stack([edge_info(self.pack[i][1]) for i in (3, 4, 5)], axis=0)
-        self._row_by_edge = {int(edge_id): i for i, edge_id in enumerate(edges)}
+        pack = TempMEExplainer._concat_pack(batches)
+        edge = np.stack([edge_info(pack[i][1]) for i in (3, 4, 5)], axis=0)
+        row_by_edge = {int(edge_id): i for i, edge_id in enumerate(edges)}
+        return pack, edge, row_by_edge
+
+    @staticmethod
+    def _preprocessing_cache_path(subset_name: str) -> str:
+        if subset_name not in {"train", "test"}:
+            raise ValueError("subset_name must be either 'train' or 'test'")
+        return f"Data/{CONFIG.data.dataset_name}/TempME/preprocessed_{subset_name}.pkl"
+
+    @staticmethod
+    def _load_preprocessing_cache(subset_name: str):
+        path = TempMEExplainer._preprocessing_cache_path(subset_name)
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as file:
+            return pickle.load(file)
+
+    @staticmethod
+    def _save_preprocessing_cache(subset_name: str, pack, edge, row_by_edge):
+        path = TempMEExplainer._preprocessing_cache_path(subset_name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as file:
+            pickle.dump(
+                {
+                    "pack": pack,
+                    "edge": edge,
+                    "row_by_edge": row_by_edge,
+                },
+                file,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+
+    @staticmethod
+    def preprocess_data_if_missing(data: Data, subset_name: str = "test"):
+        """Load cached preprocessing data or create and cache it if absent."""
+        cached = TempMEExplainer._load_preprocessing_cache(subset_name)
+        if cached is not None:
+            print("Using cached TempME preprocessing data.")
+            return cached["pack"], cached["edge"], cached["row_by_edge"]
+
+        print("TempME preprocessing data is missing; preprocessing walks...")
+        walk_finder = get_walk_finder(data)
+        neg_edge_sampler = NegativeEdgeSampler(
+            data.src_node_ids,
+            data.dst_node_ids,
+            data.node_interact_times,
+        )
+        pack, edge, row_by_edge = TempMEExplainer.preprocess(
+            data, walk_finder, neg_edge_sampler
+        )
+        TempMEExplainer._save_preprocessing_cache(subset_name, pack, edge, row_by_edge)
+        print("Cached TempME preprocessing data.")
+        return pack, edge, row_by_edge
+
+    @staticmethod
+    def train_model_if_missing(model, neighbor_finder, data: Data, device):
+        """Train and cache the TempME model only when its checkpoint is absent."""
+        path = f"Saved_models/{CONFIG.data.dataset_name}/TempME/Explainer.pt"
+        if os.path.exists(path):
+            print("Using cached TempME trained model.")
+            return
+
+        pack, edge, _ = TempMEExplainer.preprocess_data_if_missing(data, dataset_name="train")
+        edge_features = neighbor_finder.edge_features.detach().cpu().numpy()
+        node_features = getattr(data, "node_features", None)
+        if node_features is None:
+            node_features = model.backbone.node_features.detach().cpu().numpy()
+        explainer = TempME(
+            model, base_model_type="tgn", data=CONFIG.data.dataset_name,
+            out_dim=CONFIG.tempME.out_dim, hid_dim=CONFIG.tempME.hid_dim,
+            temp=CONFIG.tempME.temp, if_cat_feature=True,
+            dropout_p=CONFIG.tempME.drop_out, device=device,
+            edge_raw_features=edge_features, node_raw_features=node_features,
+        )
+        explainer.to(device)
+        print("TempME trained model is missing; training model...")
+        TempMEExplainer.train(model, explainer, neighbor_finder, data, pack, edge, device)
+        print("Cached TempME trained model.")
 
     @staticmethod
     def _concat_pack(batches):
@@ -106,53 +185,64 @@ class TempMEExplainer(Explainer):
                 merge_walks(batches["walks_tgt"]), merge_walks(batches["walks_bgd"]),
                 np.concatenate(batches["dst_fake"], axis=0))
 
-    def initialize(self, train: bool = False):
-        if self.pack is None:
-            raise RuntimeError("TempME preprocessing is required before initialize()")
+    def initialize(self):
+        cached = TempMEExplainer._load_preprocessing_cache("test")
+        if cached is None:
+            raise FileNotFoundError(
+                "TempME evaluation preprocessing data is missing. "
+                "Call preprocess_data_if_missing(full_data, subset_name='test') first."
+            )
+        self.pack = cached["pack"]
+        self.edge = cached["edge"]
+        self._row_by_edge = cached["row_by_edge"]
+        print("Using cached TempME preprocessing data.")
         self.explainer.to(self.device)
-        path = f"Saved_models/{CONFIG.data.dataset_name}/TempMe/Explainer.pt"
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if train:
-            self.train()
-        elif not os.path.exists(path):
-            raise FileNotFoundError(f"TempME checkpoint not found: {path}. Run with --preprocessing true.")
-        else:
-            self.explainer.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+        path = f"Saved_models/{CONFIG.data.dataset_name}/TempME/Explainer.pt"
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"TempME trained model is missing: {path}. "
+                "Call train_model_if_missing() first."
+            )
+        self.explainer.load_state_dict(
+            torch.load(path, map_location=self.device, weights_only=True)
+        )
+        print("Using cached TempME trained model.")
 
-    def train(self):
+    @staticmethod
+    def train(model, explainer, neighbor_finder, data, pack, edge, device):
         """Train the motif selector while keeping the DyGLib predictor frozen."""
-        optimizer = torch.optim.Adam(self.explainer.parameters(), lr=CONFIG.tempME.lr, weight_decay=CONFIG.tempME.weight_decay)
+        optimizer = torch.optim.Adam(explainer.parameters(), lr=CONFIG.tempME.lr, weight_decay=CONFIG.tempME.weight_decay)
         criterion = nn.MSELoss() if CONFIG.model.task == "regression" else nn.BCEWithLogitsLoss()
-        src, dst, ts, edges = self.data.src_node_ids, self.data.dst_node_ids, self.data.node_interact_times, self.data.edge_ids
-        n = min(len(src), self.pack[3][0].shape[0])
+        src, dst, ts, edges = data.src_node_ids, data.dst_node_ids, data.node_interact_times, data.edge_ids
+        n = min(len(src), pack[3][0].shape[0])
         for epoch in range(CONFIG.tempME.n_epoch):
             losses = []
             for start in range(0, n, CONFIG.tempME.bs):
                 idx = np.arange(start, min(start + CONFIG.tempME.bs, n))
-                sg_src, sg_dst, _, walks_src, walks_dst, _, _ = get_item(self.pack, idx)
-                src_edge, dst_edge, _ = self.edge[:, idx]
+                sg_src, sg_dst, _, walks_src, walks_dst, _, _ = get_item(pack, idx)
+                src_edge, dst_edge, _ = edge[:, idx]
                 bsz = len(idx)
                 def make_sg(sg):
-                    feats = self.neighbor_finder.get_edge_features_for_multi_hop(sg[1])
+                    feats = neighbor_finder.get_edge_features_for_multi_hop(sg[1])
                     result = BatchSubgraphs(*sg, feats)
-                    result.to(self.device)
+                    result.to(device)
                     return result
                 src_sg, dst_sg = make_sg(sg_src), make_sg(sg_dst)
                 with torch.no_grad():
-                    target = self.model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False).detach()
-                p_src = self.explainer(walks_src, ts[idx], src_edge)
-                p_dst = self.explainer(walks_dst, ts[idx], dst_edge)
-                explanation = self.explainer.retrieve_explanation(sg_src, p_src, walks_src, sg_dst, p_dst, walks_dst, sg_dst, p_dst, walks_dst, training=CONFIG.tempME.if_bern)
+                    target = model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False).detach()
+                p_src = explainer(walks_src, ts[idx], src_edge)
+                p_dst = explainer(walks_dst, ts[idx], dst_edge)
+                explanation = explainer.retrieve_explanation(sg_src, p_src, walks_src, sg_dst, p_dst, walks_dst, sg_dst, p_dst, walks_dst, training=CONFIG.tempME.if_bern)
                 src_sg.set_event_attention([x[:bsz] for x in explanation])
                 dst_sg.set_event_attention([x[bsz:2 * bsz] for x in explanation])
-                pred = self.model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False)
+                pred = model(src[idx], dst[idx], ts[idx], src_sg, dst_sg, edges_are_positive=False)
                 pred_loss = torch.nan_to_num(criterion(pred, target), nan=0.0, posinf=1e6, neginf=1e6)
-                kl = self.explainer.kl_loss(p_src, walks_src, target=CONFIG.tempME.prior_p) + self.explainer.kl_loss(p_dst, walks_dst, target=CONFIG.tempME.prior_p)
+                kl = explainer.kl_loss(p_src, walks_src, target=CONFIG.tempME.prior_p) + explainer.kl_loss(p_dst, walks_dst, target=CONFIG.tempME.prior_p)
                 loss = torch.nan_to_num(pred_loss + CONFIG.tempME.beta * kl, nan=0.0, posinf=1e6, neginf=1e6)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
             print(f"TempME epoch {epoch}: {np.mean(losses):.6f}")
-        torch.save(self.explainer.state_dict(), f"Saved_models/{CONFIG.data.dataset_name}/TempMe/Explainer.pt")
+        torch.save(explainer.state_dict(), f"Saved_models/{CONFIG.data.dataset_name}/TempME/Explainer.pt")
 
     def explain_instance(self, src: int, dst: int, timestamp: int, silent: bool = False) -> Any:
         mask = ((self.data.src_node_ids == src) & (self.data.dst_node_ids == dst) &

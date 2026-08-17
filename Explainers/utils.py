@@ -90,7 +90,8 @@ class Explainer(ABC):
     def evaluate(
         self, src: np.ndarray, dst: np.ndarray, timestamp: np.ndarray,
         ground_truth: np.ndarray, event_features: np.ndarray,
-        label_for_prediction: Optional[str] = None, store_coalitions: bool = False
+        label_for_prediction: Optional[str] = None, store_coalitions: bool = False,
+        intermediate_results_path: str = ""
     ) -> Tuple[pd.DataFrame, np.ndarray]:
         """
         Evaluate explanation fidelity and sparsity effects for multiple instances.
@@ -105,6 +106,9 @@ class Explainer(ABC):
             Edge feature matrix for the dataset.
         label_for_prediction : Optional[str]
             Target label for prediction focus (optional).
+        intermediate_results_path : str
+            Optional CSV path for appending per-instance, non-aggregated
+            evaluation results. An empty path disables intermediate storage.
 
         Returns
         -------
@@ -120,6 +124,39 @@ class Explainer(ABC):
         timings = []
         result_mean = []
         result_zero = []
+
+        intermediate_columns = [
+            "Original prediction", "Ground truth", "y",
+            "Sparsity thresholds", "Fidelity to prediction",
+            "Fidelity to prediction (logit)",
+            "Deviation to ground truth", "Accuracy",
+            "Source", "Destination", "Timestamp", "Instance index",
+            "Remove technique",
+        ]
+        if intermediate_results_path:
+            parent = os.path.dirname(intermediate_results_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            if not os.path.exists(intermediate_results_path):
+                pd.DataFrame(columns=intermediate_columns).to_csv(
+                    intermediate_results_path, index=False
+                )
+
+        def append_intermediate_results(result, remove_technique, instance_index):
+            if not intermediate_results_path:
+                return
+            frame = pd.DataFrame(result, columns=intermediate_columns[:8])
+            frame["Source"] = src[instance_index]
+            frame["Destination"] = dst[instance_index]
+            frame["Timestamp"] = timestamp[instance_index]
+            frame["Instance index"] = instance_index
+            frame["Remove technique"] = remove_technique
+            frame.to_csv(
+                intermediate_results_path,
+                mode="a",
+                header=False,
+                index=False,
+            )
 
         for i in tqdm(range(src.shape[0])):
             try:
@@ -151,6 +188,7 @@ class Explainer(ABC):
                         coalitions, imputation_data, sg_src=sg_src, sg_dst=sg_dst
                     )
                 result_mean.append(evaluation)
+                append_intermediate_results(evaluation, "Mean", i)
 
                 # Evaluate with zero imputation
                 if self.is_feature_level:
@@ -164,6 +202,7 @@ class Explainer(ABC):
                         coalitions, None, sg_src=sg_src, sg_dst=sg_dst
                     )
                 result_zero.append(evaluation)
+                append_intermediate_results(evaluation, "Zero", i)
 
                 torch.cuda.empty_cache()
             except Exception:

@@ -1,6 +1,6 @@
 ModelConfig:
   model_name: TGAT
-  device: "cuda:0"
+  device: "cpu"
   num_neighbors: 20
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6

@@ -27,6 +27,7 @@ if str(_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_ROOT))
 
 from tgnnexplainer.xgraph.method.navigators import MLPNavigator
+from tgnnexplainer.xgraph.method.other_baselines_tg import PGExplainerExt
 from tgnnexplainer.xgraph.method.subgraphx_tg import SubgraphXTG
 
 
@@ -184,6 +185,32 @@ class SubgraphXTExplainer(Explainer):
         self.explainer = None
 
     @staticmethod
+    def _navigator_checkpoint_path():
+        checkpoint_dir = Path("Saved_models") / CONFIG.data.dataset_name / "tgnnexplainer"
+        return PGExplainerExt._ckpt_path(
+            checkpoint_dir,
+            CONFIG.model.model_name.lower(),
+            CONFIG.data.dataset_name,
+            "subgraphx_tg",
+        )
+
+    @staticmethod
+    def train_model_if_missing(model: TGNN, neighbor_finder: NeighborSampler, data: Data):
+        """Train the navigator on training data, or reuse its checkpoint."""
+        checkpoint_path = SubgraphXTExplainer._navigator_checkpoint_path()
+        if checkpoint_path.exists():
+            print(f"Using cached T-GNNExplainer navigator: {checkpoint_path}")
+            return
+
+        print("T-GNNExplainer navigator is missing; training navigator...")
+        preparer = SubgraphXTExplainer(model, neighbor_finder, data)
+        preparer._create_navigator()
+        print(f"Cached T-GNNExplainer navigator: {checkpoint_path}")
+
+    # Backward-compatible alias for callers that used the former name.
+    preprocess = train_model_if_missing
+
+    @staticmethod
     def _make_events(data: Data) -> pd.DataFrame:
         events = data.dataset.copy() if data.dataset is not None else pd.DataFrame()
         events = events.copy()
@@ -202,11 +229,11 @@ class SubgraphXTExplainer(Explainer):
         remaining = [column for column in events.columns if column not in columns]
         return events[columns + remaining]
 
-    def initialize(self):
+    def _create_navigator(self):
         dataset = CONFIG.data.dataset_name
         model_name = CONFIG.model.model_name.lower()
         params = CONFIG.tgnnExplainerConfig
-        checkpoint_dir = Path(CONFIG.data.folder) / "checkpoints" / "pg_explainer_tg"
+        checkpoint_dir = Path("Saved_models") / CONFIG.data.dataset_name / "tgnnexplainer"
         results_dir = Path("Logs/TGNNExplainer") / dataset
         results_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +254,16 @@ class SubgraphXTExplainer(Explainer):
             load_results=False, rollout=params.num_rollouts, min_atoms=params.min_atoms,
             c_puct=5, navigator=navigator, navigator_type="mlp", pg_positive=True,
         )
+
+    def initialize(self):
+        checkpoint_path = SubgraphXTExplainer._navigator_checkpoint_path()
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(
+                f"T-GNNExplainer navigator is missing: {checkpoint_path}. "
+                "Call SubgraphXTExplainer.train_model_if_missing() first."
+            )
+        self._create_navigator()
+        print(f"Using cached T-GNNExplainer navigator: {checkpoint_path}")
 
     def explain_instance(self, src: int, dst: int, timestamp: float, silent: bool = False) -> Any:
         if self.explainer is None:

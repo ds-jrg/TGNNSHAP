@@ -176,7 +176,18 @@ def evaluate_explainer(explainer, explainer_name):
     end = time.time_ns()
     timings.append(np.array([[end-start, explainer_name, "Init"]]))
     
-    results, exec_times = explainer.evaluate(srcs, dsts, timestamps, targets, edge_raw_features, store_coalitions=args.store_coalitions)
+    intermediate_results_path = (
+        f"Results/{CONFIG.data.dataset_name}/{explainer_name}.csv"
+    )
+    results, exec_times = explainer.evaluate(
+        srcs,
+        dsts,
+        timestamps,
+        targets,
+        edge_raw_features,
+        store_coalitions=args.store_coalitions,
+        intermediate_results_path=intermediate_results_path,
+    )
     timings.append(np.hstack([exec_times, np.full(exec_times.shape, explainer_name), np.full(exec_times.shape, "Explain")]))
     results["Explainer"] = explainer_name
     results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_{explainer_name}.csv", index=False)
@@ -225,7 +236,10 @@ if "tgnn" in selected:
     
     print("Evaluating TGNNExplainer...")
     
-    explainer = SubgraphXTExplainer(model, full_neighbor_sampler, full_data) 
+    SubgraphXTExplainer.train_model_if_missing(
+        model, train_neighbor_sampler, train_data
+    )
+    explainer = SubgraphXTExplainer(model, full_neighbor_sampler, full_data)
     results, timings = evaluate_explainer(explainer, "TGNNExplainer")
     
     results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_TGNNExplainer.csv", index=False)
@@ -241,29 +255,19 @@ if "tgnn" in selected:
 # ## TempME
 if "tempme" in selected:
     from Explainers.External.TempME.Explainer import TempMEExplainer
-    from Explainers.External.TempME.utils.graph import get_walk_finder
     
     print("Evaluating TempME...")
 
-    preprocessing = args.preprocessing
+    # train_model_if_missing() ensures training data exists before training;
+    # initialize() only loads cached artifacts and raises if they are absent.
+    TempMEExplainer.preprocess_data_if_missing(train_data, subset_name="train")
+    TempMEExplainer.train_model_if_missing(
+        model, train_neighbor_sampler, train_data, CONFIG.model.device
+    )
 
-    if(preprocessing):
-        print("Preprocessing TempME...")
-        explainer = TempMEExplainer(model, train_neighbor_sampler, train_data)
-        walk_finder = get_walk_finder(train_data)
-        neg_edge_sampler = NegativeEdgeSampler(train_data.src_node_ids, train_data.dst_node_ids, train_data.node_interact_times)
+    TempMEExplainer.preprocess_data_if_missing(full_data, subset_name="test")
+    explainer = TempMEExplainer(model, full_neighbor_sampler, full_data)
 
-        explainer.preprocess(walk_finder, neg_edge_sampler, train=True)
-        explainer.initialize(train = True)
-        explainer = TempMEExplainer(model, full_neighbor_sampler, full_data)
-        walk_finder = get_walk_finder(full_data)
-        neg_edge_sampler = NegativeEdgeSampler(full_data.src_node_ids, full_data.dst_node_ids, full_data.node_interact_times)
-        explainer.preprocess(walk_finder, neg_edge_sampler, train=False)
-        print("Preprocessing done.")
-
-    # ``TempMEExplainer`` keeps preprocessing in memory.  Reuse the
-    # already preprocessed full-graph instance instead of constructing a
-    # third instance and losing its walk pack.
     results, timings = evaluate_explainer(explainer, "TempME")
       
     results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_TempME.csv", index=False)
