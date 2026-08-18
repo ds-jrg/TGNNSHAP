@@ -43,10 +43,10 @@ def train(modelConfig: ModelConfig, dataConfig: DataConfig, trainConfig: TrainCo
     # initialize negative samplers, set seeds for validation and testing so negatives are the same across different runs
     # in the inductive setting, negatives are sampled only amongst other new nodes
     # train negative edge sampler does not need to specify the seed, but evaluation samplers need to do so
-    train_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=train_data.src_node_ids[~np.isnan(train_data.labels)], dst_node_ids=train_data.dst_node_ids[~np.isnan(train_data.labels)])
-    val_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=full_data.src_node_ids[~np.isnan(full_data.labels)], dst_node_ids=full_data.dst_node_ids[~np.isnan(full_data.labels)], seed=0)
+    train_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=train_data.src_node_ids[~np.isnan(train_data.labels)], dst_node_ids=train_data.dst_node_ids[~np.isnan(train_data.labels)], interact_times=train_data.node_interact_times[~np.isnan(train_data.labels)], seed=0)
+    val_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=full_data.src_node_ids[~np.isnan(full_data.labels)], dst_node_ids=full_data.dst_node_ids[~np.isnan(full_data.labels)], interact_times=full_data.node_interact_times[~np.isnan(full_data.labels)], seed=0)
     #new_node_val_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=new_node_val_data.src_node_ids, dst_node_ids=new_node_val_data.dst_node_ids, seed=1)
-    test_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=full_data.src_node_ids[~np.isnan(full_data.labels)], dst_node_ids=full_data.dst_node_ids[~np.isnan(full_data.labels)], seed=2)
+    test_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=full_data.src_node_ids[~np.isnan(full_data.labels)], dst_node_ids=full_data.dst_node_ids[~np.isnan(full_data.labels)], interact_times=full_data.node_interact_times[~np.isnan(full_data.labels)], seed=2)
     #new_node_test_neg_edge_sampler = NegativeEdgeSampler(src_node_ids=new_node_test_data.src_node_ids, dst_node_ids=new_node_test_data.dst_node_ids, seed=3)
 
     train_idx_data_loader = get_idx_data_loader(indices_list=np.where(~np.isnan(train_data.labels))[0], batch_size=trainConfig.batch_size, shuffle=False)
@@ -277,7 +277,17 @@ def train(modelConfig: ModelConfig, dataConfig: DataConfig, trainConfig: TrainCo
             val_metric_indicator = []
             for metric_name in val_metrics[0].keys():
                 val_metric_indicator.append((metric_name, np.mean([val_metric[metric_name] for val_metric in val_metrics]), True))
-            early_stop = early_stopping.step(val_metric_indicator, model)
+            intermediate_val_metrics = {
+                metric_name: np.mean([val_metric[metric_name] for val_metric in val_metrics])
+                for metric_name in val_metrics[0].keys()
+            }
+            early_stop = early_stopping.step(
+                val_metric_indicator,
+                model,
+                intermediate_val_metrics,
+                save_model_folder,
+                model_name,
+            )
 
             if early_stop:
                 break
