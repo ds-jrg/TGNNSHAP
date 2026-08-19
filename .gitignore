@@ -16,3 +16,4 @@ launch.json
 venv/*
 .tgnnshap_venv/
 .*.out
+Results/*
