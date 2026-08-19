@@ -4,21 +4,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoderLayer
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch_scatter import scatter
+try:
+    from ..utils.null_model import get_null_distribution
+except ImportError:
+    from utils import get_null_distribution
 
-
-def _scatter_max(values, indices, size):
-    result = torch.full((*values.shape[:-1], size), -torch.inf, device=values.device, dtype=values.dtype)
-    expanded = indices.long()
-    result.scatter_reduce_(-1, expanded, values, reduce="amax", include_self=True)
-    return result
-
-
-def _scatter_mean(values, indices, size):
-    result = torch.zeros((*values.shape[:-1], size), device=values.device, dtype=values.dtype)
-    counts = torch.zeros_like(result)
-    result.scatter_add_(-1, indices.long(), values)
-    counts.scatter_add_(-1, indices.long(), torch.ones_like(values))
-    return result / counts.clamp_min(1)
 
 class Attention(nn.Module) :
     def __init__(self, input_dim, hid_dim):
@@ -115,20 +106,18 @@ class TempME(nn.Module):
                  if_cat_feature=True, dropout_p=0.1, device=None, edge_raw_features=None,
                  node_raw_features=None):
         super(TempME, self).__init__()
-        # DyGLib stores raw features on the backbone/sampler rather than on
-        # the TGNN wrapper used by the original TempME repository.
-        self.node_raw_embed = torch.as_tensor(
-            node_raw_features if node_raw_features is not None else
-            (base.backbone.node_features if hasattr(base, "backbone") else base.node_raw_features),
-            dtype=torch.float32, device=device)
-        self.node_dim = self.node_raw_embed.shape[1]
+        if node_raw_features is None:
+            node_raw_features = getattr(base, "node_raw_features", None)
+            if node_raw_features is None and hasattr(base, "backbone"):
+                node_raw_features = base.backbone.node_features
         if edge_raw_features is None:
             edge_raw_features = getattr(base, "edge_raw_features", None)
-        if edge_raw_features is None:
-            raise ValueError("TempME requires the DyGLib edge feature matrix")
-        self.edge_raw_embed = torch.as_tensor(edge_raw_features, dtype=torch.float32,
-                                              device=self.node_raw_embed.device)
-        self.edge_dim = self.edge_raw_embed.shape[1]
+        if node_raw_features is None or edge_raw_features is None:
+            raise ValueError("TempME requires node and edge feature matrices")
+        node_raw_features = torch.as_tensor(node_raw_features, dtype=torch.float32)
+        edge_raw_features = torch.as_tensor(edge_raw_features, dtype=torch.float32)
+        self.node_dim = node_raw_features.shape[1]  # node feature dimension
+        self.edge_dim = edge_raw_features.shape[1]  # edge feature dimension
         self.time_dim = self.node_dim  # default to be time feature dimension
         self.out_dim = out_dim
         self.hid_dim = hid_dim
@@ -149,10 +138,10 @@ class TempME(nn.Module):
         self.final_linear = nn.Linear(2 * self.hid_dim, self.hid_dim)
         self.node_emd_dim = self.hid_dim + 12 + self.node_dim if self.if_cat else self.hid_dim + self.node_dim
         self.affinity_score = _MergeLayer(self.node_emd_dim, self.node_emd_dim)
+        self.edge_raw_embed = nn.Embedding.from_pretrained(edge_raw_features, padding_idx=0, freeze=True)
+        self.node_raw_embed = nn.Embedding.from_pretrained(node_raw_features, padding_idx=0, freeze=True)
         self.time_encoder = TimeEncode(expand_dim=self.time_dim)
-        # Computing the empirical distribution imports the legacy CSV loader
-        # and is both expensive and unavailable for DyGLib-only datasets.
-        self.null_model = {str(i): 1.0 / 12.0 for i in range(12)}
+        self.null_model = get_null_distribution(data_name=data)
 
 
     def forward(self, walks, cut_time_l, edge_identify):
@@ -247,7 +236,7 @@ class TempME(nn.Module):
         :return: tensor shape [bsz, n_walk, len_walk, edge_dim]
         '''
         eidx_records_th = torch.from_numpy(eidx_records).long().to(self.device)
-        edge_features = self.edge_raw_embed[eidx_records_th]  # shape [batch, n_walk, len_walk, edge_dim]
+        edge_features = self.edge_raw_embed(eidx_records_th)  # shape [batch, n_walk, len_walk+1, edge_dim]
         masks = (eidx_records_th == 0).long().to(self.device)  #[bsz, n_walk] the number of null edges in each ealk
         masks = masks.unsqueeze(-1)
         return edge_features, masks
@@ -259,8 +248,8 @@ class TempME(nn.Module):
         '''
         src_node = torch.from_numpy(n_id[:,:,[0,2,4]]).long().to(self.device)
         tgt_node = torch.from_numpy(n_id[:,:,[1,3,5]]).long().to(self.device)
-        src_features = self.node_raw_embed[src_node]  #[bsz, n_walk, len_walk, node_dim]
-        tgt_features = self.node_raw_embed[tgt_node]
+        src_features = self.node_raw_embed(src_node)  #[bsz, n_walk, len_walk, node_dim]
+        tgt_features = self.node_raw_embed(tgt_node)
         return src_features, tgt_features
 
     def retrieve_edge_imp_node(self, subgraph, graphlet_imp, walks, training=True):
@@ -284,7 +273,7 @@ class TempME(nn.Module):
         edge_walk = edge_walk.reshape(edge_walk.shape[0], -1)   #[bsz, n_walk * 3]
         edge_walk = torch.from_numpy(edge_walk).long().to(self.device)
         walk_imp = graphlet_imp.repeat(1,1,3).view(edge_walk.shape[0], -1)  #[bsz, n_walk * 3]
-        edge_imp = _scatter_max(walk_imp, edge_walk, num_edges)  #[bsz, num_edges]
+        edge_imp = scatter(walk_imp, edge_walk, dim=-1, dim_size=num_edges, reduce="max")  #[bsz, num_edges]
         edge_imp_0 = torch.gather(edge_imp, dim=-1, index=index_tensor_0)
         edge_imp_1 = torch.gather(edge_imp, dim=-1, index=index_tensor_1)
         edge_imp_0 = self.concrete_bern(edge_imp_0, training)
@@ -327,24 +316,20 @@ class TempME(nn.Module):
         :return: KL loss: scalar
         '''
         _, _, _, cat_feat, _ = walks
-        prob = prob.squeeze(-1).clamp(1e-6, 1 - 1e-6)
-        cat_feat = torch.from_numpy(cat_feat).long().to(self.device).squeeze(-1)
         # prob = self.concrete_bern(prob, training)
         if self.prior == "empirical":
             s = torch.mean(prob, dim=1)
-            s = s.unsqueeze(-1)
             null_distribution = torch.tensor(list(self.null_model.values())).to(self.device)
             num_cat = len(self.null_model.keys())
-            empirical_distribution = _scatter_mean(prob, cat_feat, num_cat).to(self.device)
+            cat_feat = torch.tensor(cat_feat, dtype=torch.int64).to(self.device)
+            empirical_distribution = scatter(prob, index = cat_feat, reduce="mean", dim=1, dim_size=num_cat).to(self.device)
             empirical_distribution = s * empirical_distribution.reshape(-1, num_cat)
             null_distribution = target * null_distribution.reshape(-1, num_cat)
-            empirical_distribution = empirical_distribution.clamp_min(1e-6)
-            null_distribution = null_distribution.clamp_min(1e-6)
-            kl_loss = ((1-s) * torch.log((1-s).clamp_min(1e-6)/(1-target+1e-6) + 1e-6) + empirical_distribution * torch.log(empirical_distribution/null_distribution + 1e-6)).mean()
+            kl_loss = ((1-s) * torch.log((1-s)/(1-target+1e-6) + 1e-6) + empirical_distribution * torch.log(empirical_distribution/(null_distribution + 1e-6)+1e-6)).mean()
         else:
             kl_loss = (prob * torch.log(prob/target + 1e-6) +
                     (1-prob) * torch.log((1-prob)/(1-target+1e-6) + 1e-6)).mean()
-        return torch.nan_to_num(kl_loss)
+        return kl_loss
     
     
     
@@ -427,6 +412,7 @@ class TempME_TGAT(nn.Module):
         src_emb = src_emb.repeat(1, n_walk, 1)
         tgt_emb = tgt_emb.repeat(1, n_walk, 1)
         assert combined_features.size(-1) == self.gru_dim
+        graphlet_emb = self.attention_encode(combined_features)  #[bsz, n_walk, out_dim]
         if self.if_attn:
             graphlet_emb = self.self_attention(graphlet_emb)  #[bsz, n_walk, out_dim]
         graphlet_features = torch.cat((graphlet_emb, src_emb, tgt_emb), dim=-1)
@@ -543,7 +529,7 @@ class TempME_TGAT(nn.Module):
         edge_walk = edge_walk.reshape(edge_walk.shape[0], -1)   #[bsz, n_walk * 3]
         edge_walk = torch.from_numpy(edge_walk).long().to(self.device)
         walk_imp = graphlet_imp.repeat(1,1,3).view(edge_walk.shape[0], -1)  #[bsz, n_walk * 3]
-        edge_imp = _scatter_max(walk_imp, edge_walk, num_edges)  #[bsz, num_edges]
+        edge_imp = scatter(walk_imp, edge_walk, dim=-1, dim_size=num_edges, reduce="max")  #[bsz, num_edges]
         edge_imp_0 = torch.gather(edge_imp, dim=-1, index=index_tensor_0)
         edge_imp_1 = torch.gather(edge_imp, dim=-1, index=index_tensor_1)
         edge_imp_0 = self.concrete_bern(edge_imp_0, training)
@@ -583,7 +569,7 @@ class TempME_TGAT(nn.Module):
             null_distribution = torch.tensor(list(self.null_model.values())).to(self.device)
             num_cat = len(self.null_model.keys())
             cat_feat = torch.tensor(cat_feat).to(self.device)
-            empirical_distribution = _scatter_mean(prob, cat_feat, num_cat).to(self.device)
+            empirical_distribution = scatter(prob, index = cat_feat, reduce="mean", dim=1, dim_size=num_cat).to(self.device)
             empirical_distribution = s * empirical_distribution.reshape(-1, num_cat)
             null_distribution = target * null_distribution.reshape(-1, num_cat)
             kl_loss = ((1-s) * torch.log((1-s)/(1-target+1e-6) + 1e-6) + empirical_distribution * torch.log(empirical_distribution/(null_distribution+1e-6) + 1e-6)).mean()

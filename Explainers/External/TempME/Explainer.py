@@ -26,6 +26,7 @@ from DyGLib.utils.utils import BatchSubgraphs, NegativeEdgeSampler, NeighborSamp
 from .models import TempME
 from .utils.batch_loader import get_item
 from .utils.graph import edge_info, get_walk_finder
+from .processed.data_preprocess import marginal, calculate_edge
 
 
 CONFIG = CONFIG()
@@ -84,7 +85,9 @@ class TempMEExplainer(Explainer):
             batches["dst_fake"].append(fake)
 
         pack = TempMEExplainer._concat_pack(batches)
-        edge = np.stack([edge_info(pack[i][1]) for i in (3, 4, 5)], axis=0)
+        new_walks = marginal(pack[3], pack[4], pack[5])
+        pack = (pack[0], pack[1], pack[2], new_walks[0], new_walks[1], new_walks[2], pack[6])
+        edge = calculate_edge(pack[3], pack[4], pack[5])
         row_by_edge = {int(edge_id): i for i, edge_id in enumerate(edges)}
         return pack, edge, row_by_edge
 
@@ -138,7 +141,7 @@ class TempMEExplainer(Explainer):
         TempMEExplainer._save_preprocessing_cache(subset_name, pack, edge, row_by_edge)
         print("Cached TempME preprocessing data.")
         return pack, edge, row_by_edge
-
+    
     @staticmethod
     def train_model_if_missing(model, neighbor_finder, data: Data, device):
         """Train and cache the TempME model only when its checkpoint is absent."""
@@ -147,7 +150,7 @@ class TempMEExplainer(Explainer):
             print("Using cached TempME trained model.")
             return
 
-        pack, edge, _ = TempMEExplainer.preprocess_data_if_missing(data, dataset_name="train")
+        pack, edge, _ = TempMEExplainer.preprocess_data_if_missing(data, subset_name="train")
         edge_features = neighbor_finder.edge_features.detach().cpu().numpy()
         node_features = getattr(data, "node_features", None)
         if node_features is None:
@@ -173,13 +176,8 @@ class TempMEExplainer(Explainer):
                 for j in range(3)
             ])
         def merge_walks(parts):
-            merged = [np.concatenate([p[j] for p in parts], axis=0) for j in range(3)]
-            # The original preprocessing appends categorical motif and
-            # marginal features.  DyGLib does not persist them, so use the
-            # neutral category/marginal for the adapter's five-field format.
-            shape = merged[0].shape[:2] + (1,)
-            merged.extend([np.zeros(shape, dtype=np.int64), np.zeros(shape, dtype=np.float32)])
-            return tuple(merged)
+            merged = [np.concatenate([p[j] for p in parts], axis=0) for j in range(4)]
+            return np.concatenate(merged, axis=2)
         return (merge_subgraphs(batches["subgraph_src"]), merge_subgraphs(batches["subgraph_tgt"]),
                 merge_subgraphs(batches["subgraph_bgd"]), merge_walks(batches["walks_src"]),
                 merge_walks(batches["walks_tgt"]), merge_walks(batches["walks_bgd"]),
@@ -242,6 +240,7 @@ class TempMEExplainer(Explainer):
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
             print(f"TempME epoch {epoch}: {np.mean(losses):.6f}")
+        os.mkdir(f"Saved_models/{CONFIG.data.dataset_name}/TempME") if not os.path.exists(f"Saved_models/{CONFIG.data.dataset_name}/TempME") else None
         torch.save(explainer.state_dict(), f"Saved_models/{CONFIG.data.dataset_name}/TempME/Explainer.pt")
 
     def explain_instance(self, src: int, dst: int, timestamp: int, silent: bool = False) -> Any:

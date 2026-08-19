@@ -91,7 +91,9 @@ class Explainer(ABC):
         self, src: np.ndarray, dst: np.ndarray, timestamp: np.ndarray,
         ground_truth: np.ndarray, event_features: np.ndarray,
         label_for_prediction: Optional[str] = None, store_coalitions: bool = False,
-        intermediate_results_path: str = ""
+        intermediate_results_path: str = "",
+        timings_path: str = "",
+        explainer_name: str = "",
     ) -> Tuple[pd.DataFrame, np.ndarray]:
         """
         Evaluate explanation fidelity and sparsity effects for multiple instances.
@@ -142,6 +144,25 @@ class Explainer(ABC):
                     intermediate_results_path, index=False
                 )
 
+        timing_columns = ["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"]
+        if timings_path:
+            parent = os.path.dirname(timings_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            if not os.path.exists(timings_path):
+                pd.DataFrame(columns=timing_columns).to_csv(timings_path, index=False)
+
+        def append_timing(elapsed_ns, stage, instance_index):
+            if not timings_path:
+                return
+            pd.DataFrame([{
+                "Time(ns)": elapsed_ns,
+                "Time(s)": elapsed_ns / 1_000_000_000,
+                "Explainer": explainer_name,
+                "Stage": stage,
+                "Instance Index": instance_index,
+            }]).to_csv(timings_path, mode="a", header=False, index=False)
+
         def append_intermediate_results(result, remove_technique, instance_index):
             if not intermediate_results_path:
                 return
@@ -164,6 +185,7 @@ class Explainer(ABC):
                 explanation = self.explain_instance(src[i], dst[i], timestamp[i], silent=True)
                 end = time.time_ns()
                 timings.append(end - start)
+                append_timing(end - start, "Explain", i)
 
                 coalitions, sg_src, sg_dst = self.build_coalitions(explanation)
                 if(store_coalitions):
@@ -274,6 +296,13 @@ class Explainer(ABC):
         -------
         Any
             Implementation-dependent explanation object (events, shap values, etc.).
+        """
+        pass
+    
+    @abstractmethod
+    def initialize(self, *args, **kwargs):
+        """
+        Optional initialization for the explainer, e.g., model training.
         """
         pass
 

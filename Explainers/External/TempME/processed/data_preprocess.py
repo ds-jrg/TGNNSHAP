@@ -11,7 +11,7 @@ import pickle
 import torch
 import pandas as pd
 import numpy as np
-from utils import NeighborFinder
+from ..utils import NeighborFinder
 
 degree_dict = {"wikipedia":20, "reddit":20 ,"uci":30 ,"mooc":60, "enron": 30, "canparl": 30, "uslegis": 30}
 

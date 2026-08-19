@@ -6,12 +6,22 @@ import pandas as pd
 import numpy as np
 from .graph import NeighborFinder
 from .batch_loader import RandEdgeSampler
+from DyGLib.utils.DataLoader import get_link_prediction_data
+from Config.config import CONFIG
 
-degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30}
+CONFIG = CONFIG()
+
+degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 20}
 
 
-def load_data_shuffle(mode, data):
-    g_df = pd.read_csv(osp.join(osp.dirname(osp.realpath(__file__)), '..', 'processed/ml_{}.csv'.format(data)))
+def load_data_shuffle(mode, data):    
+    _, _, full_data, _, _, _ = get_link_prediction_data(val_ratio=CONFIG.train.val_ratio,
+                            test_ratio=CONFIG.train.test_ratio,
+                            node_dim=CONFIG.model.node_dim)
+    
+    g_df = full_data.dataset
+    assert g_df is not None, "Dataset is None. Please check the dataset loading process."
+    
     val_time, test_time = list(np.quantile(g_df.ts, [0.70, 0.85]))
 
     src_l = g_df.u.values
@@ -31,7 +41,7 @@ def load_data_shuffle(mode, data):
     random.seed(2023)
     total_node_set = set(np.unique(np.hstack([g_df.u.values, g_df.i.values])))
     num_total_unique_nodes = len(total_node_set)
-    mask_node_set = set(random.sample(set(src_l[ts_l > val_time]).union(set(dst_l[ts_l > val_time])),
+    mask_node_set = set(random.sample(sorted(set(src_l[ts_l > val_time]).union(set(dst_l[ts_l > val_time]))),
                                       int(0.1 * num_total_unique_nodes)))
     mask_src_flag = g_df.u.map(lambda x: x in mask_node_set).values
     mask_dst_flag = g_df.i.map(lambda x: x in mask_node_set).values

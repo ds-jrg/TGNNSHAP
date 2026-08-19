@@ -5,8 +5,6 @@ parser.add_argument("-d", "--dataset", dest="dataset",
                     help="dataset name", metavar="DATASET", required=True)
 parser.add_argument("--explainer", dest="explainer",
                     help="explainer to use", metavar="EXPLAINER", required=True)
-parser.add_argument("--preprocessing", dest="preprocessing", required=False, type=bool, default=True,
-                    help="whether to use preprocessing for TempME")
 parser.add_argument("--num_samples", dest="num_samples", required=False, type=int, default=200,
                     help="number of samples to use for evaluation")
 parser.add_argument("--store_coalitions", dest="store_coalitions", required=False, type=bool, default=False,
@@ -25,9 +23,11 @@ from DyGLib.models.CAWN import CAWN
 from DyGLib.models.DyGFormer import DyGFormer
 from DyGLib.models.MemoryModel import MemoryModel, compute_src_dst_node_time_shifts
 
-from DyGLib.models.modules import TGNN, NeuralNetworkSrcDst, BatchSubgraphs
+from DyGLib.models.modules import TGNN, MultiHeadAttention, NeuralNetworkSrcDst, BatchSubgraphs
 from DyGLib.utils.DataLoader import get_link_prediction_data
 from DyGLib.utils.utils import get_neighbor_sampler, NegativeEdgeSampler
+
+from Explainers.utils import Explainer
 
 import torch
 import numpy as np
@@ -35,6 +35,7 @@ import pandas as pd
 import seaborn as sns
 
 import random
+import os
 
 from IPython.display import SVG
 import time
@@ -168,17 +169,27 @@ results_list = []
 timings_list = []
 
 
-def evaluate_explainer(explainer, explainer_name):
-    timings = []
-    
+def evaluate_explainer(explainer: Explainer, explainer_name):
     start = time.time_ns()
     explainer.initialize()
     end = time.time_ns()
-    timings.append(np.array([[end-start, explainer_name, "Init"]]))
-    
+
     intermediate_results_path = (
         f"Results/{CONFIG.data.dataset_name}/{explainer_name}.csv"
     )
+    timings_path = (
+        f"Results/{CONFIG.data.dataset_name}/{explainer_name}_timings.csv"
+    )
+    timing_columns = ["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"]
+    os.makedirs(os.path.dirname(timings_path), exist_ok=True)
+    pd.DataFrame([{
+        "Time(ns)": end - start,
+        "Time(s)": (end - start) / 1_000_000_000,
+        "Explainer": explainer_name,
+        "Stage": "Init",
+        "Instance Index": None,
+    }], columns=timing_columns).to_csv(timings_path, index=False)
+
     results, exec_times = explainer.evaluate(
         srcs,
         dsts,
@@ -187,13 +198,17 @@ def evaluate_explainer(explainer, explainer_name):
         edge_raw_features,
         store_coalitions=args.store_coalitions,
         intermediate_results_path=intermediate_results_path,
+        timings_path=timings_path,
+        explainer_name=explainer_name,
     )
-    timings.append(np.hstack([exec_times, np.full(exec_times.shape, explainer_name), np.full(exec_times.shape, "Explain")]))
     results["Explainer"] = explainer_name
-    results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_{explainer_name}.csv", index=False)
+    aggregated_results_path = (
+        f"Results/{CONFIG.data.dataset_name}/{explainer_name}_agg.csv"
+    )
+    os.makedirs(os.path.dirname(aggregated_results_path), exist_ok=True)
+    results.to_csv(aggregated_results_path, index=False)
     
-    timings = np.concatenate(timings)
-    
+    timings = pd.read_csv(timings_path)
     return results, timings
     
     
@@ -205,7 +220,6 @@ if "shapley_event" in selected:
     explainer = ShapleyExplainerEvents(model, full_neighbor_sampler, full_data, edge_raw_features)
     results, timings = evaluate_explainer(explainer, "Shapley4TGNNEvent")
     
-    results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_Shapley4TGNNEvent.csv", index=False)
     results_list.append(results)
     timings_list.append(timings)
     
@@ -222,7 +236,6 @@ if "shapley_feature" in selected:
     explainer = ShapleyExplainerFeatures(model, full_neighbor_sampler, full_data, edge_raw_features, None, shapley_alg="MonteCarlo", top_k=3) 
     results, timings = evaluate_explainer(explainer, "Shapley4TGNNFeature")
     
-    results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_Shapley4TGNNFeature.csv", index=False)
     results_list.append(results)
     timings_list.append(timings)
     
@@ -236,13 +249,18 @@ if "tgnn" in selected:
     
     print("Evaluating TGNNExplainer...")
     
+    # Make sure the model is TGAT and set the edge_attention_alter_mode to "add" for all MultiHeadAttention layers
+    assert isinstance(model.backbone, TGAT), "Model must be an instance of TGAT if using TGNNExplainer."
+    for layer in model.backbone.temporal_conv_layers:
+        assert isinstance(layer, MultiHeadAttention), "Layer must be an instance of MultiHeadAttention"
+        layer.edge_attention_alter_mode = "add"
+    
     SubgraphXTExplainer.train_model_if_missing(
         model, train_neighbor_sampler, train_data
     )
     explainer = SubgraphXTExplainer(model, full_neighbor_sampler, full_data)
     results, timings = evaluate_explainer(explainer, "TGNNExplainer")
     
-    results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_TGNNExplainer.csv", index=False)
     results_list.append(results)
     timings_list.append(timings)
     
@@ -257,6 +275,12 @@ if "tempme" in selected:
     from Explainers.External.TempME.Explainer import TempMEExplainer
     
     print("Evaluating TempME...")
+    
+    # Make sure the model is TGAT and set the edge_attention_alter_mode to "add" for all MultiHeadAttention layers
+    assert isinstance(model.backbone, TGAT), "Model must be an instance of TGAT if using TGNNExplainer."
+    for layer in model.backbone.temporal_conv_layers:
+        assert isinstance(layer, MultiHeadAttention), "Layer must be an instance of MultiHeadAttention"
+        layer.edge_attention_alter_mode = "multiply"
 
     # train_model_if_missing() ensures training data exists before training;
     # initialize() only loads cached artifacts and raises if they are absent.
@@ -270,7 +294,6 @@ if "tempme" in selected:
 
     results, timings = evaluate_explainer(explainer, "TempME")
       
-    results.to_csv(f"Documents/ExplainerOutputs/{CONFIG.data.dataset_name}_TempME.csv", index=False)
     results_list.append(results)
     timings_list.append(timings)
     

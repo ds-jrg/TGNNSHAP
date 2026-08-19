@@ -23,10 +23,10 @@ def smooth_values(df, metric):
     return result
 
 def load_results(dataset_name: str, as_df: bool = True) -> pd.DataFrame:
-    event_df = pd.read_csv(f"Documents/ExplainerOutputs/{dataset_name}_Shapley4TGNNEvent.csv")
-    feat_df = pd.read_csv(f"Documents/ExplainerOutputs/{dataset_name}_Shapley4TGNNFeature.csv")
-    tgnn_df = pd.read_csv(f"Documents/ExplainerOutputs/{dataset_name}_TGNNExplainer.csv")
-    tempme_df = pd.read_csv(f"Documents/ExplainerOutputs/{dataset_name}_TempME.csv")
+    event_df = pd.read_csv(f"Results/{dataset_name}_Shapley4TGNNEvent_agg.csv")
+    feat_df = pd.read_csv(f"Results/{dataset_name}_Shapley4TGNNFeature_agg.csv")
+    tgnn_df = pd.read_csv(f"Results/{dataset_name}_TGNNExplainer_agg.csv")
+    tempme_df = pd.read_csv(f"Results/{dataset_name}_TempME_agg.csv")
 
     results_list = [event_df, feat_df, tgnn_df, tempme_df]
     if not as_df:

@@ -220,13 +220,16 @@ def get_item(input_pack, batch_id):
     eidx_records = [i[batch_id] for i in eidx_records]
     t_records = [i[batch_id] for i in t_records]
     subgraph_bgd = (node_records, eidx_records, t_records)
-
+    
+    walks_src = (walks_src[:, :, :6], walks_src[:, :, 6:9], walks_src[:,:,9:12], walks_src[:, :,12:13], walks_src[:,:,13:14])
     walks_src = [item[batch_id] for item in walks_src]
     walks_src = (walks_src[0], walks_src[1], walks_src[2], walks_src[3], walks_src[4])
 
+    walks_tgt = (walks_tgt[:, :, :6], walks_tgt[:, :, 6:9], walks_tgt[:,:,9:12], walks_tgt[:, :,12:13], walks_tgt[:,:,13:14])
     walks_tgt = [item[batch_id] for item in walks_tgt]
     walks_tgt = (walks_tgt[0], walks_tgt[1], walks_tgt[2], walks_tgt[3], walks_tgt[4])
 
+    walks_bgd = (walks_bgd[:, :, :6], walks_bgd[:, :, 6:9], walks_bgd[:,:,9:12], walks_bgd[:, :,12:13], walks_bgd[:,:,13:14])
     walks_bgd = [item[batch_id] for item in walks_bgd]
     walks_bgd = (walks_bgd[0], walks_bgd[1], walks_bgd[2], walks_bgd[3], walks_bgd[4])
 

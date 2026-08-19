@@ -29,6 +29,8 @@ if str(_PACKAGE_ROOT) not in sys.path:
 from tgnnexplainer.xgraph.method.navigators import MLPNavigator
 from tgnnexplainer.xgraph.method.other_baselines_tg import PGExplainerExt
 from tgnnexplainer.xgraph.method.subgraphx_tg import SubgraphXTG
+from tgnnexplainer.xgraph.evaluation.metrics_tg import EvaluatorMCTSTG
+
 
 
 CONFIG = CONFIG()
@@ -93,17 +95,21 @@ class _DyGLibModelFacade:
         dst_features = self._sampler.get_edge_features_for_multi_hop(dst_data[1])
         src_sg = BatchSubgraphs(*src_data, src_features)
         dst_sg = BatchSubgraphs(*dst_data, dst_features)
+        for l in range(len(src_sg.events)):
+            src_sg.event_attention[l] = torch.zeros_like(src_sg.event_attention[l], device=self._model.backbone.device)
+        for l in range(len(dst_sg.events)):
+            dst_sg.event_attention[l] = torch.zeros_like(dst_sg.event_attention[l], device=self._model.backbone.device)
         if candidate_weights is not None:
             candidate_ids, weights = candidate_weights
             candidate_ids = np.asarray(candidate_ids)
             weights = torch.as_tensor(weights, dtype=torch.float32, device=self._model.backbone.device).reshape(-1)
             for layer, events in enumerate(src_sg.events):
-                attention = torch.ones(events.shape, device=weights.device)
+                attention = torch.zeros(events.shape, device=weights.device)
                 for event_id, weight in zip(candidate_ids, weights):
                     attention[torch.from_numpy(events == event_id).to(weights.device)] = weight
                 src_sg.event_attention[layer] = attention
             for layer, events in enumerate(dst_sg.events):
-                attention = torch.ones(events.shape, device=weights.device)
+                attention = torch.zeros(events.shape, device=weights.device)
                 for event_id, weight in zip(candidate_ids, weights):
                     attention[torch.from_numpy(events == event_id).to(weights.device)] = weight
                 dst_sg.event_attention[layer] = attention
@@ -264,51 +270,58 @@ class SubgraphXTExplainer(Explainer):
             )
         self._create_navigator()
         print(f"Using cached T-GNNExplainer navigator: {checkpoint_path}")
+        assert self.explainer is not None
+        self.evaluator = EvaluatorMCTSTG(
+            CONFIG.model.model_name,
+            explainer_name="subgraphx_tg",
+            dataset_name=CONFIG.data.dataset_name,
+            explainer=self.explainer,
+            results_dir=CONFIG.data.folder,
+        )
 
     def explain_instance(self, src: int, dst: int, timestamp: float, silent: bool = False) -> Any:
         if self.explainer is None:
             raise RuntimeError("Call initialize() before explaining events")
-        matches = np.flatnonzero(
+        event_idx = self.data.edge_ids[(
             (self.data.src_node_ids == src) &
             (self.data.dst_node_ids == dst) &
             (self.data.node_interact_times == timestamp)
-        )
-        if len(matches) == 0:
+        )]
+        if len(event_idx) == 0:
             raise KeyError(f"No event found for ({src}, {dst}, {timestamp})")
-        event_idx = int(matches[0]) + 1
+        event_idx = int(event_idx[0])
         self.explainer.debug_mode = not silent
         self.explainer.verbose = not silent
-        tree_nodes, best_node = self.explainer(event_idxs=event_idx)[0]
-        candidate_scores = getattr(self.explainer, "candidate_initial_weights", {})
-        ranked = list(best_node.coalition)
-        ranked.extend(sorted(
-            (e for e in self.explainer.candidate_events if e not in ranked),
-            key=lambda e: candidate_scores.get(e, 0.0), reverse=True,
-        ))
-        ranked.extend(e for e in self.explainer.base_events if e not in ranked)
-        original_ids = self.original_event_ids
-        ranked_original = [int(original_ids[e - 1]) for e in ranked]
-        # The shared evaluator samples DyGLib neighborhoods independently.
-        # Add those exact two-hop events so the final coalition contains all
-        # events in its unmasked reference subgraph.
-        raw_src = int(self.data.src_node_ids[matches[0]])
-        raw_dst = int(self.data.dst_node_ids[matches[0]])
-        sampled = self.neighbor_finder.get_multi_hop_neighbors(
-            CONFIG.model.num_layers,
-            np.array([raw_src, raw_dst]),
-            np.array([timestamp, timestamp]),
-            num_neighbors=CONFIG.model.num_neighbors,
-        )
-        sampled_events = np.unique(np.concatenate(sampled[1], axis=1))
-        ranked_original.extend(int(event_id) for event_id in sampled_events if event_id != 0)
-        return np.asarray(list(dict.fromkeys(ranked_original)), dtype=np.int64)
+        explanation = self.explainer(event_idxs=event_idx)[0]
+        result = self.evaluator.evaluate([explanation], [event_idx])["coalition"]
+        return result
+        
+        # candidate_scores = getattr(self.explainer, "candidate_initial_weights", {})
+        # ranked = list(best_node.coalition)
+        # ranked.extend(sorted(
+        #     (e for e in self.explainer.candidate_events if e not in ranked),
+        #     key=lambda e: candidate_scores.get(e, 0.0), reverse=True,
+        # ))
+        # ranked.extend(e for e in self.explainer.base_events if e not in ranked)
+        # original_ids = self.original_event_ids
+        # ranked_original = [int(original_ids[e - 1]) for e in ranked]
+        # # The shared evaluator samples DyGLib neighborhoods independently.
+        # # Add those exact two-hop events so the final coalition contains all
+        # # events in its unmasked reference subgraph.
+        # sampled = self.neighbor_finder.get_multi_hop_neighbors(
+        #     CONFIG.model.num_layers,
+        #     np.array([src, dst]),
+        #     np.array([timestamp, timestamp]),
+        #     num_neighbors=CONFIG.model.num_neighbors,
+        # )
+        # sampled_events = np.unique(np.concatenate(sampled[1], axis=1))
+        # ranked_original.extend(int(event_id) for event_id in sampled_events if event_id != 0)
+        # return np.asarray(list(dict.fromkeys(ranked_original)), dtype=np.int64)
 
     def build_coalitions(self, explanation):
-        ranked = np.asarray(explanation, dtype=np.int64)
-        ranked = np.unique(ranked)
-        if len(ranked) == 0:
-            return np.zeros((1, 1), dtype=np.int64), None, None
-        coalitions = np.zeros((len(ranked), len(ranked)), dtype=np.int64)
-        for i in range(len(ranked)):
-            coalitions[i, :i + 1] = ranked[:i + 1]
+        coalitions = np.array(list(itertools.zip_longest(*explanation, fillvalue=0))).T
+        base_events = np.unique(np.array(self.explainer.base_events)).reshape((1,-1))
+        base_events = np.repeat(base_events, axis=0, repeats=coalitions.shape[0])
+        coalitions = np.concatenate([base_events,coalitions], axis=1)
+        
         return coalitions, None, None

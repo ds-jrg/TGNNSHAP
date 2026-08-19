@@ -63,26 +63,28 @@ class BaseEvaluator():
         sparsity_results = []
         fid_inv_results = []
         fid_inv_best_results = []
+        coalitions_results = []
 
         print('\nevaluating...')
         for i, (single_results, event_idx) in enumerate(zip(explainer_results, event_idxs)):
             print(f'\nevaluate {i}th: {event_idx}')
             self.explainer._initialize(event_idx)
 
-            sparsity_list, fid_inv_list, fid_inv_best_list =  self._evaluate_one(single_results, event_idx)
+            sparsity_list, fid_inv_list, fid_inv_best_list, coalition_list =  self._evaluate_one(single_results, event_idx)
 
             # import ipdb; ipdb.set_trace()
             event_idxs_results.extend([event_idx]*len(sparsity_list))
             sparsity_results.extend(sparsity_list)
             fid_inv_results.extend(fid_inv_list)
             fid_inv_best_results.extend(fid_inv_best_list)
+            coalitions_results.extend(coalition_list)
         
         results = {
             'event_idx': event_idxs_results,
             'sparsity': sparsity_results,
             'fid_inv': fid_inv_results,
             'fid_inv_best': fid_inv_best_results,
-            
+            'coalition': coalitions_results
         }
 
         self._save_value_results(event_idxs, results, self.suffix)
@@ -179,6 +181,7 @@ class EvaluatorMCTSTG(BaseEvaluator):
         tree_nodes, _ = single_results
         sparsity_list = []
         fid_inv_list = []
+        coalition_list = []
         
         candidate_events = self.explainer.candidate_events
         candidate_num = len(candidate_events)
@@ -197,6 +200,7 @@ class EvaluatorMCTSTG(BaseEvaluator):
             
             fid_inv_list.append(fid_inv)
             sparsity_list.append(spar)
+            coalition_list.append(node.coalition)
         
         sparsity_list = np.array(sparsity_list)
         fid_inv_list = np.array(fid_inv_list)
@@ -205,13 +209,15 @@ class EvaluatorMCTSTG(BaseEvaluator):
         sort_idx = np.argsort(sparsity_list) # ascending of sparsity
         sparsity_list = sparsity_list[sort_idx]
         fid_inv_list = fid_inv_list[sort_idx]
+        coalition_list = np.array(coalition_list,dtype="object")[sort_idx]
         fid_inv_best = array_best(fid_inv_list)
 
         # import ipdb; ipdb.set_trace()
         sparsity_thresholds = np.arange(0, 1.05, 0.05)
         indices = []
         for sparsity in sparsity_thresholds:
-            indices.append( np.where(sparsity_list <= sparsity)[0].max() )
+            best_fid_below_threshold = fid_inv_list[sparsity_list <= sparsity].argmax() #Note: works because sparsity_list is sorted in ascending order
+            indices.append( best_fid_below_threshold )
         
         # indices = np.unique(indices)
         # only preserve a subset of results
@@ -219,7 +225,16 @@ class EvaluatorMCTSTG(BaseEvaluator):
         # indices = np.append(indices, len(sparsity_list)-1)
         # import ipdb; ipdb.set_trace()
         # sparsity_list = sparsity_list[indices]
-        fid_inv_list = fid_inv_list[indices]
-        fid_inv_best = fid_inv_best[indices]
+        fid_inv_list_small = fid_inv_list[indices]
+        fid_inv_best_small = fid_inv_best[indices]
+        coalition_list_small = coalition_list[indices]
+        
+        #Append full coalition to the end of the list
+        sparsity_thresholds = np.append(sparsity_thresholds, 1.0)
+        fid_inv_list_small = np.append(fid_inv_list_small, fid_inv_list[-1])
+        fid_inv_best_small = np.append(fid_inv_best_small, fid_inv_best[-1])
+        new_item = np.empty(1, dtype=object)
+        new_item[0] = coalition_list[-1]
+        coalition_list_small = np.concatenate((coalition_list_small, new_item))
 
-        return sparsity_thresholds, fid_inv_list, fid_inv_best
+        return sparsity_thresholds, fid_inv_list_small, fid_inv_best_small, coalition_list_small
