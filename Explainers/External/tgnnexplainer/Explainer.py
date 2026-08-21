@@ -142,7 +142,7 @@ class _DyGLibSubgraphXTG(SubgraphXTG):
         self.num_neighbors = CONFIG.model.num_neighbors
 
     def find_candidates(self, target_event_idx):
-        row = self.all_events.iloc[int(target_event_idx) - 1]
+        row = self.all_events.iloc[int(target_event_idx)]
         roots = np.array([
             self.model.raw_node_by_normalized[int(row.u)],
             self.model.raw_node_by_normalized[int(row.i)],
@@ -228,7 +228,7 @@ class SubgraphXTExplainer(Explainer):
         events["u"] = np.array([source_map[int(node)] for node in data.src_node_ids], dtype=np.int64)
         events["i"] = np.array([destination_map[int(node)] for node in data.dst_node_ids], dtype=np.int64)
         events["ts"] = data.node_interact_times.astype(np.float64)
-        events["e_idx"] = np.arange(1, len(data.edge_ids) + 1, dtype=np.int64)
+        events["e_idx"] = data.edge_ids.astype(np.int64)
         events["idx"] = events["e_idx"]
         events["label"] = data.labels
         columns = ["u", "i", "ts", "label", "e_idx", "idx"]

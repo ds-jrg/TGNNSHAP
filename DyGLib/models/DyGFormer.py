@@ -60,7 +60,7 @@ class DyGFormer(TGNNBackbone):
     def compute_src_dst_node_temporal_embeddings(self, src_node_ids: np.ndarray, dst_node_ids: np.ndarray,
                                                  node_interact_times: np.ndarray,
                                                  src_subgraphs: BatchSubgraphs, dst_subgraphs: BatchSubgraphs,
-                                                 **kwargs): #TODO
+                                                 **kwargs):
         """
         compute source and destination node temporal embeddings
         :param src_node_ids: ndarray, shape (batch_size, )

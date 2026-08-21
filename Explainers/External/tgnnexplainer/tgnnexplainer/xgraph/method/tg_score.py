@@ -11,16 +11,16 @@ from tgnnexplainer.xgraph.evaluation.metrics_tg_utils import fidelity_inv_tg
 def _set_tgat_data(all_events: DataFrame, target_event_idx: Union[int, List]):
     """ supporter for tgat """
     if isinstance(target_event_idx, (int, np.int64)):
-        target_u = all_events.iloc[target_event_idx-1, 0]
-        target_i = all_events.iloc[target_event_idx-1, 1]
-        target_t = all_events.iloc[target_event_idx-1, 2]
+        target_u = all_events.iloc[target_event_idx, 0]
+        target_i = all_events.iloc[target_event_idx, 1]
+        target_t = all_events.iloc[target_event_idx, 2]
 
         src_idx_l = np.array([target_u, ])
         target_idx_l = np.array([target_i, ])
         cut_time_l = np.array([target_t, ])
     elif isinstance(target_event_idx, list):
         # targets = all_events[all_events.e_idx.isin(target_event_idx)]
-        targets = all_events.iloc[np.array(target_event_idx)-1] # faster?
+        targets = all_events.iloc[np.array(target_event_idx)] # faster?
 
         target_u = targets.u.values
         target_i = targets.i.values

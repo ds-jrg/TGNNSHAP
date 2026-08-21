@@ -12,6 +12,8 @@ import numpy as np
 import torch.nn.functional as F
 import os
 import warnings
+
+from DyGLib.utils.utils import BatchSubgraphs
 warnings.filterwarnings("ignore")
 
 from sklearn.metrics import average_precision_score
@@ -24,46 +26,21 @@ from GraphM import GraphMixer
 from TGN.tgn import TGN
 
 
-degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30}
-
-parser = argparse.ArgumentParser('Interface for temporal explanation')
-parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
-parser.add_argument("--base_type", type=str, default="tgn", help="tgn or graphmixer or tgat")
-parser.add_argument('--data', type=str, help='data sources to use, try wikipedia or reddit', default='wikipedia')
-parser.add_argument('--bs', type=int, default=500, help='batch_size')
-parser.add_argument('--test_bs', type=int, default=500, help='test batch_size')
-parser.add_argument('--n_degree', type=int, default=20, help='number of neighbors to sample')
-parser.add_argument('--n_head', type=int, default=4, help='number of heads used in attention layer')
-parser.add_argument('--n_epoch', type=int, default=150, help='number of epochs')
-parser.add_argument('--out_dim', type=int, default=40, help='number of attention dim')
-parser.add_argument('--hid_dim', type=int, default=64, help='number of hidden dim')
-parser.add_argument('--temp', type=float, default=0.07, help='temperature')
-parser.add_argument('--prior_p', type=float, default=0.3, help='prior belief of the sparsity')
-parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-parser.add_argument('--drop_out', type=float, default=0.1, help='dropout probability')
-parser.add_argument('--if_attn', type=bool, default=True, help='use dot product attention or mapping based')
-parser.add_argument('--if_bern', type=bool, default=True, help='use bernoulli')
-parser.add_argument('--save_model', type=bool, default=True, help='if save model')
-parser.add_argument('--test_threshold', type=bool, default=True, help='if test threshold in the evaluation')
-parser.add_argument('--verbose', type=int, default=1, help='use dot product attention or mapping based')
-parser.add_argument('--weight_decay', type=float, default=0)
-parser.add_argument('--beta', type=float, default=0.5)
-parser.add_argument('--lr_decay', type=float, default=0.999)
-parser.add_argument('--task_type', type=str, default="temporal explanation")
-
-
-try:
-    args = parser.parse_args()
-except:
-    parser.print_help()
-    sys.exit(0)
-
+degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 10}
 
 
 def norm_imp(imp):
     imp[imp < 0] = 0
     imp += 1e-16
     return imp / imp.sum()
+
+
+def make_batch_subgraph(subgraph, neighbor_finder, device):
+    """Convert a precomputed subgraph to the container expected by TGAT."""
+    edge_features = neighbor_finder.get_edge_features_for_multi_hop(subgraph[1])
+    batch_subgraph = BatchSubgraphs(*subgraph, event_features=edge_features)
+    batch_subgraph.to(device)
+    return batch_subgraph
 
 
 ### Load data and train val test split
@@ -80,7 +57,7 @@ def load_data(mode):
     random.seed(2023)
     total_node_set = set(np.unique(np.hstack([g_df.u.values, g_df.i.values])))
     num_total_unique_nodes = len(total_node_set)
-    mask_node_set = set(random.sample(set(src_l[ts_l > val_time]).union(set(dst_l[ts_l > val_time])),
+    mask_node_set = set(random.sample(sorted(set(src_l[ts_l > val_time]).union(set(dst_l[ts_l > val_time]))),
                                       int(0.1 * num_total_unique_nodes)))
     mask_src_flag = g_df.u.map(lambda x: x in mask_node_set).values
     mask_dst_flag = g_df.i.map(lambda x: x in mask_node_set).values
@@ -119,7 +96,8 @@ def load_data(mode):
 
 
 def threshold_test(args, explanation, base_model, src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                   pos_out_ori, neg_out_ori, y_ori, subgraph_src, subgraph_tgt, subgraph_bgd):
+                   pos_out_ori, neg_out_ori, y_ori, subgraph_src, subgraph_tgt, subgraph_bgd,
+                   neighbor_finder):
     '''
     calculate the AUC over ratios in [0~0.3]
     '''
@@ -213,9 +191,13 @@ def threshold_test(args, explanation, base_model, src_l_cut, dst_l_cut, dst_l_fa
 
         with torch.no_grad():
             if args.base_type == "tgat":
-                pos_logit, neg_logit = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                 subgraph_src_sub, subgraph_tgt_sub, subgraph_bgd_sub, test=True,
-                                                 if_explain=False)
+                src_sg = make_batch_subgraph(subgraph_src_sub, neighbor_finder, args.device)
+                tgt_sg = make_batch_subgraph(subgraph_tgt_sub, neighbor_finder, args.device)
+                bgd_sg = make_batch_subgraph(subgraph_bgd_sub, neighbor_finder, args.device)
+                pos_logit = base_model(src_l_cut, dst_l_cut, ts_l_cut, src_sg, tgt_sg,
+                                       edges_are_positive=False)
+                neg_logit = base_model(src_l_cut, dst_l_fake, ts_l_cut, src_sg, bgd_sg,
+                                       edges_are_positive=False)
             else:
                 pos_logit, neg_logit = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
                                                         subgraph_src_sub, subgraph_tgt_sub, subgraph_bgd_sub)
@@ -256,7 +238,6 @@ def eval_one_epoch_tgat(args, base_model, explainer, full_ngh_finder, sampler, s
     num_test_batch = math.ceil(num_test_instance / args.test_bs)-1
     idx_list = np.arange(num_test_instance)
     criterion = torch.nn.BCEWithLogitsLoss()
-    base_model.ngh_finder = full_ngh_finder
     for k in tqdm(range(num_test_batch)):
         s_idx = k * args.test_bs
         e_idx = min(num_test_instance - 1, s_idx + args.test_bs)
@@ -271,24 +252,34 @@ def eval_one_epoch_tgat(args, base_model, explainer, full_ngh_finder, sampler, s
         edge_idfeature = get_item_edge(test_edge, batch_idx)
         src_edge, tgt_edge, bgd_edge = edge_idfeature
         with torch.no_grad():
-            pos_out_ori, neg_out_ori = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                     subgraph_src, subgraph_tgt, subgraph_bgd,
-                                                     test=True, if_explain=False)  # [B, 1]
+            src_sg = make_batch_subgraph(subgraph_src, full_ngh_finder, args.device)
+            tgt_sg = make_batch_subgraph(subgraph_tgt, full_ngh_finder, args.device)
+            bgd_sg = make_batch_subgraph(subgraph_bgd, full_ngh_finder, args.device)
+            pos_out_ori = base_model(src_l_cut, dst_l_cut, ts_l_cut, src_sg, tgt_sg,
+                                     edges_are_positive=False)
+            neg_out_ori = base_model(src_l_cut, dst_l_fake, ts_l_cut, src_sg, bgd_sg,
+                                     edges_are_positive=False)
             y_pred = torch.cat([pos_out_ori, neg_out_ori], dim=0).sigmoid()  # [B*2, 1]
             y_ori = torch.where(y_pred > 0.5, 1., 0.).view(y_pred.size(0), 1)  # [2 * B, 1]
 
         explainer.eval()
-        graphlet_imp_src = explainer(walks_src, ts_l_cut, src_edge)
+        graphlet_imp_src = explainer(walks_src, src_l_cut, ts_l_cut, dst_l_cut)
         edge_imp_src = explainer.retrieve_edge_imp(subgraph_src, graphlet_imp_src, walks_src, training=args.if_bern)
-        graphlet_imp_tgt = explainer(walks_tgt, ts_l_cut, tgt_edge)
+        graphlet_imp_tgt = explainer(walks_tgt, dst_l_cut, ts_l_cut, src_l_cut)
         edge_imp_tgt = explainer.retrieve_edge_imp(subgraph_tgt, graphlet_imp_tgt, walks_tgt, training=args.if_bern)
-        graphlet_imp_bgd = explainer(walks_bgd, ts_l_cut, bgd_edge)
+        graphlet_imp_bgd = explainer(walks_bgd, dst_l_fake, ts_l_cut, src_l_cut)
         edge_imp_bgd = explainer.retrieve_edge_imp(subgraph_bgd, graphlet_imp_bgd, walks_bgd, training=args.if_bern)
         explain_weight = [[edge_imp_src, edge_imp_tgt], [edge_imp_src, edge_imp_bgd]]
-        pos_logit, neg_logit = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                             subgraph_src, subgraph_tgt, subgraph_bgd, test=True,
-                                             if_explain=True,
-                                             exp_weights=explain_weight)
+        src_sg = make_batch_subgraph(subgraph_src, full_ngh_finder, args.device)
+        tgt_sg = make_batch_subgraph(subgraph_tgt, full_ngh_finder, args.device)
+        bgd_sg = make_batch_subgraph(subgraph_bgd, full_ngh_finder, args.device)
+        src_sg.set_event_attention(edge_imp_src)
+        tgt_sg.set_event_attention(edge_imp_tgt)
+        bgd_sg.set_event_attention(edge_imp_bgd)
+        pos_logit = base_model(src_l_cut, dst_l_cut, ts_l_cut, src_sg, tgt_sg,
+                       edges_are_positive=False)
+        neg_logit = base_model(src_l_cut, dst_l_fake, ts_l_cut, src_sg, bgd_sg,
+                       edges_are_positive=False)
         pred = torch.cat([pos_logit, neg_logit], dim=0).to(args.device)
         pred_loss = criterion(pred, y_ori)
         kl_loss = explainer.kl_loss(graphlet_imp_src, walks_src, target=args.prior_p) + \
@@ -328,7 +319,8 @@ def eval_one_epoch_tgat(args, base_model, explainer, full_ngh_finder, sampler, s
                     edge_imp_bgd[i] = edge_imp_bgd[i].masked_fill(mask, -1e10)
                 edge_imps = edge_imp_src + edge_imp_tgt + edge_imp_bgd
                 aps_AUC, auc_AUC, acc_AUC, fid_prob_AUC, fid_logit_AUC = threshold_test(args, edge_imps, base_model, src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                     pos_out_ori, neg_out_ori, y_ori, subgraph_src, subgraph_tgt, subgraph_bgd)
+                                     pos_out_ori, neg_out_ori, y_ori, subgraph_src, subgraph_tgt, subgraph_bgd,
+                                     full_ngh_finder)
                 ratio_AUC_aps.append(aps_AUC)
                 ratio_AUC_auc.append(auc_AUC)
                 ratio_AUC_acc.append(acc_AUC)
@@ -363,7 +355,7 @@ def eval_one_epoch_tgat(args, base_model, explainer, full_ngh_finder, sampler, s
 
     if aps_ratios_AUC > best_accuracy:
         if args.save_model:
-            model_path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'params', 'explainer/tgat/')
+            model_path = osp.join("Saved_models", args.data, "tempme")
             if not osp.exists(model_path):
                 os.makedirs(model_path)
             save_path = f"{args.data}.pt"
@@ -454,7 +446,7 @@ def eval_one_epoch(args, base_model, explainer, full_ngh_finder, src, dst, ts, v
                                                                                         dst_l_fake, ts_l_cut, e_l_cut,
                                                                                         pos_out_ori, neg_out_ori, y_ori,
                                                                                         subgraph_src, subgraph_tgt,
-                                                                                        subgraph_bgd)
+                                                                                        subgraph_bgd, full_ngh_finder)
                 ratio_AUC_aps.append(aps_AUC)
                 ratio_AUC_auc.append(auc_AUC)
                 ratio_AUC_acc.append(acc_AUC)
@@ -488,7 +480,7 @@ def eval_one_epoch(args, base_model, explainer, full_ngh_finder, src, dst, ts, v
 
     if aps_ratios_AUC > best_accuracy:
         if args.save_model:
-            model_path = osp.join(osp.dirname(osp.realpath(__file__)), 'params', f'explainer/{args.base_type}/')
+            model_path = osp.join("Saved_models", args.data, "tempme")
             if not osp.exists(model_path):
                 os.makedirs(model_path)
             save_path = f"{args.data}.pt"
@@ -498,23 +490,22 @@ def eval_one_epoch(args, base_model, explainer, full_ngh_finder, src, dst, ts, v
     else:
         return best_accuracy
 
-def train(args, base_model, train_pack, test_pack, train_edge, test_edge):
+def train(args, base_model, train_data, full_data, train_pack, test_pack, train_edge, test_edge, ngh_finder, full_ngh_finder, test_rand_sampler):
     if args.base_type == "tgat":
-        Explainer = TempME_TGAT(base_model, data=args.data, out_dim=args.out_dim, hid_dim=args.hid_dim, temp=args.temp,
+        Explainer = TempME_TGAT(base_model, edge_features=full_ngh_finder.edge_features.detach().cpu().numpy(), data=args.data, out_dim=args.out_dim, hid_dim=args.hid_dim, temp=args.temp,
+                    n_head=args.n_head,
                                 dropout_p=args.drop_out, device=args.device)
     else:
-        Explainer = TempME(base_model, base_model_type=args.base_type, data=args.data, out_dim=args.out_dim, hid_dim=args.hid_dim,
-                                temp=args.temp, if_cat_feature=True,
-                                dropout_p=args.drop_out, device=args.device)
+        raise ValueError(f"Wrong value for base_type {args.base_type}! Only support tgat for now.")
     Explainer = Explainer.to(args.device)
     optimizer = torch.optim.Adam(Explainer.parameters(),
                                  lr=args.lr,
                                  betas=(0.9, 0.999), eps=1e-8,
                                  weight_decay=args.weight_decay)
     criterion = torch.nn.BCEWithLogitsLoss()
-    rand_sampler, src_l, dst_l, ts_l, label_l, e_idx_l, ngh_finder = load_data(mode="training")
-    test_rand_sampler, test_src_l, test_dst_l, test_ts_l, test_label_l, test_e_idx_l, full_ngh_finder = load_data(
-        mode="test")
+    src_l, dst_l, ts_l, e_idx_l = train_data.src_node_ids, train_data.dst_node_ids, train_data.node_interact_times, train_data.edge_ids
+    test_src_l, test_dst_l, test_ts_l, test_e_idx_l = full_data.src_node_ids, full_data.dst_node_ids, full_data.node_interact_times, full_data.edge_ids
+
     num_instance = len(src_l) - 1
     num_batch = math.ceil(num_instance / args.bs)
     best_acc = 0
@@ -524,7 +515,6 @@ def train(args, base_model, train_pack, test_pack, train_edge, test_edge):
     np.random.shuffle(idx_list)
 
     for epoch in range(args.n_epoch):
-        base_model.set_neighbor_sampler(ngh_finder)
         train_aps = []
         train_auc = []
         train_acc = []
@@ -545,37 +535,36 @@ def train(args, base_model, train_pack, test_pack, train_edge, test_edge):
             ts_l_cut = ts_l[batch_idx]
             e_l_cut = e_idx_l[batch_idx]
             subgraph_src, subgraph_tgt, subgraph_bgd, walks_src, walks_tgt, walks_bgd, dst_l_fake = get_item(train_pack,
-                                                                                                             batch_idx)
+                                                                                                             batch_idx)        
             src_edge, tgt_edge, bgd_edge = get_item_edge(train_edge, batch_idx)
             with torch.no_grad():
                 if args.base_type == "tgat":
-                    pos_out_ori, neg_out_ori = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                         subgraph_src, subgraph_tgt, subgraph_bgd, test=True,
-                                                         if_explain=False)  #[B, 1]
+                    src_sg = make_batch_subgraph(subgraph_src, ngh_finder, args.device)
+                    dst_sg = make_batch_subgraph(subgraph_tgt, ngh_finder, args.device)
+                    bgd_sg = make_batch_subgraph(subgraph_bgd, ngh_finder, args.device)
+                    pos_out_ori = base_model(src_l_cut, dst_l_cut, ts_l_cut, src_sg, dst_sg, edges_are_positive=False).detach()
+                    neg_out_ori = base_model(src_l_cut, dst_l_fake, ts_l_cut, src_sg, bgd_sg, edges_are_positive=False).detach()
                 else:
-                    pos_out_ori, neg_out_ori = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                            subgraph_src, subgraph_tgt, subgraph_bgd)  # [B, 1]
+                    raise ValueError(f"Wrong value for base_type {args.base_type}! Only support tgat for now.")
                 y_pred = torch.cat([pos_out_ori, neg_out_ori], dim=0).sigmoid()  # [B*2, 1]
                 y_ori = torch.where(y_pred > 0.5, 1., 0.).view(y_pred.size(0), 1)
             optimizer.zero_grad()
-            graphlet_imp_src = Explainer(walks_src, ts_l_cut, src_edge)
-            graphlet_imp_tgt = Explainer(walks_tgt, ts_l_cut, tgt_edge)
-            graphlet_imp_bgd = Explainer(walks_bgd, ts_l_cut, bgd_edge)
+            graphlet_imp_src = Explainer(walks_src, src_l_cut, ts_l_cut, dst_l_cut)
+            graphlet_imp_tgt = Explainer(walks_tgt, dst_l_cut, ts_l_cut, src_l_cut)
+            graphlet_imp_bgd = Explainer(walks_bgd, dst_l_fake, ts_l_cut, src_l_cut)
             if args.base_type == "tgat":
                 edge_imp_src = Explainer.retrieve_edge_imp(subgraph_src, graphlet_imp_src, walks_src, training=args.if_bern)
                 edge_imp_tgt = Explainer.retrieve_edge_imp(subgraph_tgt, graphlet_imp_tgt, walks_tgt, training=args.if_bern)
                 edge_imp_bgd = Explainer.retrieve_edge_imp(subgraph_bgd, graphlet_imp_bgd, walks_bgd, training=args.if_bern)
                 explain_weight = [[edge_imp_src, edge_imp_tgt], [edge_imp_src, edge_imp_bgd]]
-                pos_logit, neg_logit = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                    subgraph_src, subgraph_tgt, subgraph_bgd, test=True,
-                                                    if_explain=True, exp_weights=explain_weight)
+                
+                src_sg.set_event_attention(edge_imp_src)
+                dst_sg.set_event_attention(edge_imp_tgt)
+                bgd_sg.set_event_attention(edge_imp_bgd)
+                pos_logit = base_model(src_l_cut, dst_l_cut, ts_l_cut, src_sg, dst_sg, edges_are_positive=False)
+                neg_logit = base_model(src_l_cut, dst_l_fake, ts_l_cut, src_sg, bgd_sg, edges_are_positive=False)
             else:
-                explanation = Explainer.retrieve_explanation(subgraph_src, graphlet_imp_src, walks_src,
-                                                            subgraph_tgt, graphlet_imp_tgt, walks_tgt,
-                                                            subgraph_bgd, graphlet_imp_bgd, walks_bgd,
-                                                            training=args.if_bern)
-                pos_logit, neg_logit = base_model.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, e_l_cut,
-                                                    subgraph_src, subgraph_tgt, subgraph_bgd, explain_weights=explanation)
+                raise ValueError(f"Wrong value for base_type {args.base_type}! Only support tgat for now.")
                 
             pred = torch.cat([pos_logit, neg_logit], dim=0).to(args.device)
             pred_loss = criterion(pred, y_ori)
@@ -618,16 +607,56 @@ def train(args, base_model, train_pack, test_pack, train_edge, test_edge):
 
         ### evaluation:
         if (epoch + 1) % args.verbose == 0:
-            best_acc = eval_one_epoch(args, base_model, Explainer, full_ngh_finder, test_src_l,
-                                      test_dst_l, test_ts_l, test_e_idx_l, epoch, best_acc, test_pack, test_edge)
+            if args.base_type == "tgat":
+                best_acc = eval_one_epoch_tgat(args, base_model, Explainer, full_ngh_finder,
+                                               test_rand_sampler, test_src_l, test_dst_l,
+                                               test_ts_l, test_e_idx_l, epoch, best_acc,
+                                               test_pack, test_edge)
+            else:
+                raise ValueError(f"Wrong value for base_type {args.base_type}! Only support tgat for now.")
 
 if __name__ == '__main__':
-    args.device = torch.device('cuda:{}'.format(args.gpu))
+    parser = argparse.ArgumentParser('Interface for temporal explanation')
+    parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
+    parser.add_argument("--base_type", type=str, default="tgn", help="tgn or graphmixer or tgat")
+    parser.add_argument('--data', type=str, help='data sources to use, try wikipedia or reddit', default='wikipedia')
+    parser.add_argument('--bs', type=int, default=500, help='batch_size')
+    parser.add_argument('--test_bs', type=int, default=500, help='test batch_size')
+    parser.add_argument('--n_degree', type=int, default=20, help='number of neighbors to sample')
+    parser.add_argument('--n_head', type=int, default=1, help='number of heads used in attention layer')
+    parser.add_argument('--n_epoch', type=int, default=150, help='number of epochs')
+    parser.add_argument('--out_dim', type=int, default=40, help='number of attention dim')
+    parser.add_argument('--hid_dim', type=int, default=64, help='number of hidden dim')
+    parser.add_argument('--temp', type=float, default=0.07, help='temperature')
+    parser.add_argument('--prior_p', type=float, default=0.3, help='prior belief of the sparsity')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--drop_out', type=float, default=0.1, help='dropout probability')
+    parser.add_argument('--if_attn', type=bool, default=True, help='use dot product attention or mapping based')
+    parser.add_argument('--if_bern', type=bool, default=True, help='use bernoulli')
+    parser.add_argument('--save_model', type=bool, default=True, help='if save model')
+    parser.add_argument('--test_threshold', type=bool, default=True, help='if test threshold in the evaluation')
+    parser.add_argument('--verbose', type=int, default=1, help='use dot product attention or mapping based')
+    parser.add_argument('--weight_decay', type=float, default=0)
+    parser.add_argument('--beta', type=float, default=0.5)
+    parser.add_argument('--lr_decay', type=float, default=0.999)
+    parser.add_argument('--task_type', type=str, default="temporal explanation")
+
+
+    try:
+        args = parser.parse_args()
+    except:
+        parser.print_help()
+        sys.exit(0)
+    
+    args.device = "mps"
     args.n_degree = degree_dict[args.data]
     args.ratios = [0.01, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.30]
     gnn_model_path = osp.join(osp.dirname(osp.realpath(__file__)), 'params', 'tgnn',
                               f'{args.base_type}_{args.data}.pt')
-    base_model = torch.load(gnn_model_path).to(args.device)
+    base_model = torch.load(gnn_model_path, weights_only=False).to(args.device)
+    # The preprocessed LinkPred subgraphs contain two hops (root + two levels),
+    # while this checkpoint was saved with three message-passing layers.
+    base_model.num_layers = 2
     if args.base_type == "tgn":
         base_model.forbidden_memory_update = True
     pre_load_train = h5py.File(osp.join(osp.dirname(osp.realpath(__file__)),  'processed', f'{args.data}_train_cat.h5'), 'r')

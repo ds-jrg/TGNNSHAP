@@ -56,6 +56,7 @@ full_neighbor_sampler = get_neighbor_sampler(data=full_data, edge_features=edge_
                                                 time_scaling_factor=CONFIG.model.time_scaling_factor, seed=1)
 train_neighbor_sampler = get_neighbor_sampler(data=train_data, edge_features=edge_raw_features, sample_neighbor_strategy=CONFIG.model.sample_neighbor_strategy,
                                                 time_scaling_factor=CONFIG.model.time_scaling_factor, seed=1)
+full_random_sampler = NegativeEdgeSampler(full_data.src_node_ids, full_data.dst_node_ids, full_data.node_interact_times)
 
 # create model
 if CONFIG.model.model_name == 'TGAT':
@@ -152,6 +153,9 @@ _alias_map = {
     "tgnn": "tgnn",
     "tgnnexplainer": "tgnn",
     "tempme": "tempme",
+    "random": "random",
+    "randomexplainer": "random",
+    "baseline": "random",
     "all": "all"
 }
 selected = set()
@@ -160,10 +164,10 @@ for s in _selected:
     if mapped:
         selected.add(mapped)
     else:
-        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_feature, tgnn, tempme, all")
+        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_feature, tgnn, tempme, random, all")
 
 if "all" in selected:
-    selected = {"shapley_event", "shapley_feature", "tgnn", "tempme"}
+    selected = {"shapley_event", "shapley_feature", "tgnn", "tempme", "random"}
 
 results_list = []
 timings_list = []
@@ -256,7 +260,7 @@ if "tgnn" in selected:
         layer.edge_attention_alter_mode = "add"
     
     SubgraphXTExplainer.train_model_if_missing(
-        model, train_neighbor_sampler, train_data
+        model, full_neighbor_sampler, full_data #Training set is constructed within the explainer
     )
     explainer = SubgraphXTExplainer(model, full_neighbor_sampler, full_data)
     results, timings = evaluate_explainer(explainer, "TGNNExplainer")
@@ -286,7 +290,7 @@ if "tempme" in selected:
     # initialize() only loads cached artifacts and raises if they are absent.
     TempMEExplainer.preprocess_data_if_missing(train_data, subset_name="train")
     TempMEExplainer.train_model_if_missing(
-        model, train_neighbor_sampler, train_data, CONFIG.model.device
+        model, train_neighbor_sampler, full_neighbor_sampler, full_random_sampler, train_data, full_data, CONFIG.model.device
     )
 
     TempMEExplainer.preprocess_data_if_missing(full_data, subset_name="test")
@@ -297,6 +301,25 @@ if "tempme" in selected:
     results_list.append(results)
     timings_list.append(timings)
     
+    explainer = None
+    torch.cuda.empty_cache()
+    print("Done.")
+
+
+# ## Random baseline
+if "random" in selected:
+    from Explainers.RandomExplainer.Explainer import RandomExplainer
+
+    print("Evaluating Random baseline...")
+
+    explainer = RandomExplainer(
+        model, full_neighbor_sampler, full_data, edge_raw_features
+    )
+    results, timings = evaluate_explainer(explainer, "Random")
+
+    results_list.append(results)
+    timings_list.append(timings)
+
     explainer = None
     torch.cuda.empty_cache()
     print("Done.")

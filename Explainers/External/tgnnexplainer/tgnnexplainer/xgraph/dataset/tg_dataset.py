@@ -24,10 +24,11 @@ def verify_dataframe_unify(df):
     assert df.iloc[:, 0].max() == df.iloc[:, 0].nunique()
     assert df.iloc[:, 1].min() == df.iloc[:, 0].max() + 1
     assert df.iloc[:, 1].max() == df.iloc[:, 0].max() + df.iloc[:, 1].nunique()
-    assert df['e_idx'].min() == 1
-    assert df['e_idx'].max() == len(df)
-    assert df['idx'].min() == 1
-    assert df['idx'].max() == len(df)
+    #assert df['e_idx'].min() == 1 Padding id is 0 and already included in the dataset. So first event index should be 0.
+    assert df['e_idx'].min() == 0
+    #assert df['e_idx'].max() == len(df) - 1 # Does not work with training set
+    assert df['idx'].min() == 0
+    #assert df['idx'].max() == len(df) - 1 # Does not work with training set
 
     
 def load_events_data(path):

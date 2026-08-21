@@ -1,6 +1,6 @@
 ModelConfig:
   model_name: TGAT
-  device: "cpu"
+  device: "mps"
   num_neighbors: 10
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6
@@ -45,7 +45,7 @@ TrainConfig:
   test_interval_epochs: 1
 
 TempMEConfig:
-  bs: 128
+  bs: 500
   n_epoch: 100
   out_dim: 40
   hid_dim: 64

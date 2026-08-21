@@ -100,13 +100,18 @@ def get_link_prediction_data(val_ratio: float, test_ratio: float, node_dim: int)
     # get the timestamp of validate and test set
     val_time, test_time = list(np.quantile(graph_df.ts, [(1 - val_ratio - test_ratio), (1 - test_ratio)]))
 
-    # if graph_df.idx.iloc[0] != 0:
-    #     graph_df.loc[-1] = np.full((graph_df.shape[1],), fill_value=0)  # adding a row
-    #     graph_df.index = graph_df.index + 1  # shifting index
-    #     graph_df = graph_df.sort_index() 
-
+    if graph_df.idx.iloc[0] != 0:
+        zero_element = pd.DataFrame(np.zeros((1, graph_df.shape[1])), columns=graph_df.columns)
+        graph_df = pd.concat([zero_element, graph_df], ignore_index=True)
+        
+    graph_df.loc[:, 'idx'] = list(range(graph_df.shape[0]))
     if "type" not in graph_df.columns:
         graph_df.loc[:,"type"]="0"
+    
+    #Cast everything to the int
+    graph_df.u = graph_df.u.astype(np.int64)
+    graph_df.i = graph_df.i.astype(np.int64)
+    graph_df.idx = graph_df.idx.astype(np.int64)
 
     # if(graph_df.shape[0]>edge_raw_features.shape[0]):
     #     edge_raw_features = np.concat([np.zeros((1,edge_raw_features.shape[1]), dtype="float"), edge_raw_features])

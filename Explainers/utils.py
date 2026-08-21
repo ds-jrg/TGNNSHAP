@@ -651,7 +651,7 @@ def calc_mean_timing(timestamp: int, subgraph: BatchSubgraphs, imputation_data: 
     for e_ids, timestamps in zip(subgraph.events, subgraph.timestamps):
         is_no_event_mask = e_ids == 0
         types = data.types[e_ids]
-        ts = ts.repeat(CONFIG.model.num_neighbors)
+        ts = ts.repeat(CONFIG.model.num_neighbors) # TODO Replace with num neighbors
         new_timestamps = np.array([t - mean_delta_timings[l] if l is not np.nan else 0 for l, t in np.concat([types.reshape((-1, 1)), ts.reshape((-1, 1))], axis=1)])
         new_timestamps = new_timestamps.reshape((1, -1))
         new_timestamps[is_no_event_mask] = 0

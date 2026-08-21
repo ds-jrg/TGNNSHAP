@@ -11,7 +11,7 @@ from Config.config import CONFIG
 
 CONFIG = CONFIG()
 
-degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 20}
+degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 10}
 
 
 def load_data_shuffle(mode, data):    

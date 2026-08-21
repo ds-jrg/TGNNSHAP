@@ -118,9 +118,9 @@ class ShapleyExplainerEvents(Explainer):
 
         # Human-readable feature names for events
         if self.node_names is not None:
-            labels = [f"{self.node_names[self.data.src_node_ids[e-1]]} to {self.node_names[self.data.dst_node_ids[e-1]]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
+            labels = [f"{self.node_names[self.data.src_node_ids[e]]} to {self.node_names[self.data.dst_node_ids[e]]} @ {self.data.node_interact_times[e]}" for e in event_ids]
         else:
-            labels = [f"{self.data.src_node_ids[e-1]} to {self.data.dst_node_ids[e-1]} @ {self.data.node_interact_times[e-1]}" for e in event_ids]
+            labels = [f"{self.data.src_node_ids[e]} to {self.data.dst_node_ids[e]} @ {self.data.node_interact_times[e]}" for e in event_ids]
 
         # Instantiate SHAP on binary event-inclusion mask
         if self.algorithm == "KernelSHAP":
@@ -570,8 +570,8 @@ class ShapleyExplainerFeatures(Explainer):
             data=imputation_data[event_id].cpu().numpy().reshape(1, -1),
             feature_names=labels
         )
-        if CONFIG.model.task == "classification": #reduce event ID by 1 since baseline datasets do not contain the zero event.
-            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+        if CONFIG.model.task == "classification": 
+            d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         else:
             d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         return explainer(d.reshape(1, -1), silent=silent)
@@ -726,10 +726,10 @@ class ShapleyExplainerFeatures(Explainer):
         explainer = shap.ExactExplainer(
             val_features, masker=imputation_data[event_id].cpu().numpy().reshape(1, -1), feature_names=labels
         )
-        if CONFIG.model.task == "classification": #reduce event ID by 1 since baseline datasets do not contain the zero event.
-            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+        if CONFIG.model.task == "classification":
+            d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         else:
-            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+            d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         return explainer(d.reshape(1, -1), silent=silent)
 
     def explain_event_monte_carlo(
@@ -792,10 +792,10 @@ class ShapleyExplainerFeatures(Explainer):
         explainer = shap.explainers.KernelExplainer(
             val_features, data=imputation_data[event_id].cpu().numpy().reshape(1, -1), feature_names=labels
         )
-        if CONFIG.model.task == "classification": #reduce event ID by 1 since baseline datasets do not contain the zero event.
-            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+        if CONFIG.model.task == "classification": 
+            d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         else:
-            d = np.concat(([1, self.data.node_interact_times[event_id-1]], event_features))
+            d = np.concat(([1, self.data.node_interact_times[event_id]], event_features))
         return explainer(d.reshape(1, -1), silent=silent, l1_reg=False)
 
 

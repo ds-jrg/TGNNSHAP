@@ -354,12 +354,12 @@ class MergeLayer_final(torch.nn.Module):
         return z_final
 
 class TempME_TGAT(nn.Module):
-    def __init__(self, base, data, out_dim, hid_dim, temp, prior="empirical",  if_attn=True, n_head=8, dropout_p=0.1, device=None):
+    def __init__(self, base, data, out_dim, hid_dim, temp, edge_features, prior="empirical",  if_attn=True, n_head=8, dropout_p=0.1, device=None):
         super(TempME_TGAT, self).__init__()
         # self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)), requires_grad=False)
         # self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)), requires_grad=False)
-        self.node_dim = base.n_feat_th.shape[1]  # node feature dimension
-        self.edge_dim = base.e_feat_th.shape[1]  # edge feature dimension
+        self.node_dim = base.backbone.node_features.shape[1]  # node feature dimension
+        self.edge_dim = edge_features.shape[1]  # edge feature dimension
         self.time_dim = self.node_dim  # default to be time feature dimension
         self.out_dim = out_dim
         self.hid_dim = hid_dim
@@ -382,8 +382,8 @@ class TempME_TGAT(nn.Module):
         self.self_attention_cat = TransformerEncoderLayer(d_model=self.gru_dim, nhead=self.n_head,
                                                       dim_feedforward=32 * self.out_dim, dropout=self.dropout_p,
                                                       batch_first=True, activation='relu')
-        self.edge_raw_embed = base.edge_raw_embed
-        self.node_raw_embed = base.node_raw_embed
+        self.edge_raw_embed = torch.Tensor(edge_features).to(self.device)
+        self.node_raw_embed = torch.Tensor(base.backbone.node_features).to(self.device)
         self.time_encoder = TimeEncode(expand_dim=self.time_dim)
         self.null_model = get_null_distribution(data_name=data)
         self.prior = prior
@@ -407,8 +407,8 @@ class TempME_TGAT(nn.Module):
         node_features = self.retrieve_node_features(node_idx)  #[bsz, n_walk, len_walk, node_dim * 2]
         combined_features = torch.cat([edge_features, time_features, node_features], dim=-1).to(self.device)  #[bsz, n_walk, len_walk, gru_dim]
         n_walk = combined_features.size(1)
-        src_emb = self.node_raw_embed(torch.from_numpy(np.expand_dims(src_idx_l, 1)).long().to(self.device))  #[bsz, 1, node_dim]
-        tgt_emb = self.node_raw_embed(torch.from_numpy(np.expand_dims(tgt_idx_l, 1)).long().to(self.device))  # [bsz, 1, node_dim]
+        src_emb = self.node_raw_embed[torch.from_numpy(np.expand_dims(src_idx_l, 1)).long().to(self.device)]  #[bsz, 1, node_dim]
+        tgt_emb = self.node_raw_embed[torch.from_numpy(np.expand_dims(tgt_idx_l, 1)).long().to(self.device)]  # [bsz, 1, node_dim]
         src_emb = src_emb.repeat(1, n_walk, 1)
         tgt_emb = tgt_emb.repeat(1, n_walk, 1)
         assert combined_features.size(-1) == self.gru_dim
@@ -471,8 +471,8 @@ class TempME_TGAT(nn.Module):
         :return: tensor shape [bsz, n_walk, len_walk, edge_dim]
         '''
         eidx_records_th = torch.from_numpy(eidx_records).long().to(self.device)
-        edge_features = self.edge_raw_embed(eidx_records_th)  # shape [batch, n_walk, len_walk+1, edge_dim]
-        masks = (eidx_records_th == 0).sum(dim=-1).long().to(self.device)  #[bsz, n_walk] the number of null edges in each ealk
+        edge_features = self.edge_raw_embed[eidx_records_th]  # shape [batch, n_walk, len_walk+1, edge_dim]
+        masks = (eidx_records_th == 0).sum(dim=-1).long().to(self.device)  #[bsz, n_walk] the number of null edges in each walk
         return edge_features, masks
 
     def retrieve_node_features(self,n_id):
@@ -482,8 +482,8 @@ class TempME_TGAT(nn.Module):
         '''
         src_node = torch.from_numpy(n_id[:,:,[0,2,4]]).long().to(self.device)
         tgt_node = torch.from_numpy(n_id[:,:,[1,3,5]]).long().to(self.device)
-        src_features = self.node_raw_embed(src_node)  #[bsz, n_walk, len_walk, node_dim]
-        tgt_features = self.node_raw_embed(tgt_node)
+        src_features = self.node_raw_embed[src_node]  #[bsz, n_walk, len_walk, node_dim]
+        tgt_features = self.node_raw_embed[tgt_node]
         node_features = torch.cat([src_features, tgt_features], dim=-1)
         return node_features
 
@@ -529,7 +529,7 @@ class TempME_TGAT(nn.Module):
         edge_walk = edge_walk.reshape(edge_walk.shape[0], -1)   #[bsz, n_walk * 3]
         edge_walk = torch.from_numpy(edge_walk).long().to(self.device)
         walk_imp = graphlet_imp.repeat(1,1,3).view(edge_walk.shape[0], -1)  #[bsz, n_walk * 3]
-        edge_imp = scatter(walk_imp, edge_walk, dim=-1, dim_size=num_edges, reduce="max")  #[bsz, num_edges]
+        edge_imp = scatter(walk_imp.to("cpu"), edge_walk.to("cpu"), dim=-1, dim_size=num_edges, reduce="max").to(self.device)  #[bsz, num_edges]
         edge_imp_0 = torch.gather(edge_imp, dim=-1, index=index_tensor_0)
         edge_imp_1 = torch.gather(edge_imp, dim=-1, index=index_tensor_1)
         edge_imp_0 = self.concrete_bern(edge_imp_0, training)
