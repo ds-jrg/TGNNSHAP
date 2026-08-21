@@ -112,6 +112,7 @@ def get_link_prediction_data(val_ratio: float, test_ratio: float, node_dim: int)
     graph_df.u = graph_df.u.astype(np.int64)
     graph_df.i = graph_df.i.astype(np.int64)
     graph_df.idx = graph_df.idx.astype(np.int64)
+    graph_df.loc[:, 'e_idx'] = graph_df.idx.astype(np.int64) # Used by TGNN-Explainer
 
     # if(graph_df.shape[0]>edge_raw_features.shape[0]):
     #     edge_raw_features = np.concat([np.zeros((1,edge_raw_features.shape[1]), dtype="float"), edge_raw_features])

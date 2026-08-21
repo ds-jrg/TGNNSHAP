@@ -11,9 +11,9 @@ from tgnnexplainer.xgraph.evaluation.metrics_tg_utils import fidelity_inv_tg
 def _set_tgat_data(all_events: DataFrame, target_event_idx: Union[int, List]):
     """ supporter for tgat """
     if isinstance(target_event_idx, (int, np.int64)):
-        target_u = all_events.iloc[target_event_idx, 0]
-        target_i = all_events.iloc[target_event_idx, 1]
-        target_t = all_events.iloc[target_event_idx, 2]
+        target_u = all_events.u[target_event_idx]
+        target_i = all_events.i[target_event_idx]
+        target_t = all_events.ts[target_event_idx]
 
         src_idx_l = np.array([target_u, ])
         target_idx_l = np.array([target_i, ])

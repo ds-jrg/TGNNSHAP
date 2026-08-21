@@ -174,7 +174,7 @@ class SubgraphXTExplainer(Explainer):
             raise NotImplementedError(
                 "T-GNNExplainer currently supports DyGLib TGAT and TGN backbones only"
             )
-        self.events = self._make_events(data)
+        self.events = data.dataset
         self.original_event_ids = data.edge_ids.astype(np.int64)
         raw_nodes = np.unique(np.concatenate([data.src_node_ids, data.dst_node_ids]))
         normalized_nodes = np.concatenate([
@@ -215,25 +215,6 @@ class SubgraphXTExplainer(Explainer):
 
     # Backward-compatible alias for callers that used the former name.
     preprocess = train_model_if_missing
-
-    @staticmethod
-    def _make_events(data: Data) -> pd.DataFrame:
-        events = data.dataset.copy() if data.dataset is not None else pd.DataFrame()
-        events = events.copy()
-        source_nodes = np.unique(data.src_node_ids)
-        destination_nodes = np.unique(data.dst_node_ids)
-        source_map = {int(node): i + 1 for i, node in enumerate(source_nodes)}
-        destination_offset = len(source_map)
-        destination_map = {int(node): destination_offset + i + 1 for i, node in enumerate(destination_nodes)}
-        events["u"] = np.array([source_map[int(node)] for node in data.src_node_ids], dtype=np.int64)
-        events["i"] = np.array([destination_map[int(node)] for node in data.dst_node_ids], dtype=np.int64)
-        events["ts"] = data.node_interact_times.astype(np.float64)
-        events["e_idx"] = data.edge_ids.astype(np.int64)
-        events["idx"] = events["e_idx"]
-        events["label"] = data.labels
-        columns = ["u", "i", "ts", "label", "e_idx", "idx"]
-        remaining = [column for column in events.columns if column not in columns]
-        return events[columns + remaining]
 
     def _create_navigator(self):
         dataset = CONFIG.data.dataset_name

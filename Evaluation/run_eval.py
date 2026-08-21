@@ -9,6 +9,10 @@ parser.add_argument("--num_samples", dest="num_samples", required=False, type=in
                     help="number of samples to use for evaluation")
 parser.add_argument("--store_coalitions", dest="store_coalitions", required=False, type=bool, default=False,
                     help="whether to store coalitions during evaluation")
+parser.add_argument("--print_subgraph", action="store_true",
+                    help="print one sampled computational subgraph to the terminal")
+parser.add_argument("--subgraph_index", type=int, default=0,
+                    help="batch index of the computational subgraph to print")
 
 args = parser.parse_args()
 
@@ -98,6 +102,85 @@ model.eval()
 
 num_samples = args.num_samples
 
+
+def print_computational_subgraph(
+    src: int,
+    dst: int,
+    timestamp: float,
+    subgraphs_src: BatchSubgraphs,
+    subgraphs_dst: BatchSubgraphs,
+    data,
+    batch_index: int = 0,
+) -> None:
+    """Print the sampled temporal computational subgraph for one edge.
+
+    The model computes the prediction from separate sampled neighborhoods for
+    the source and destination nodes.  This method prints both neighborhoods,
+    hop by hop, including sampled neighbor nodes, event IDs, event timestamps,
+    and the corresponding event endpoints when available.
+
+    Parameters
+    ----------
+    src, dst, timestamp:
+        The central interaction being explained.
+    subgraphs_src, subgraphs_dst:
+        Batched subgraphs passed to :class:`TGNN`.
+    data:
+        Dataset object containing ``src_node_ids``, ``dst_node_ids``,
+        ``node_interact_times`` and ``edge_ids``.
+    batch_index:
+        Which item in the batched subgraphs to print.
+    """
+    if batch_index < 0:
+        raise ValueError("batch_index must be non-negative")
+    if batch_index >= subgraphs_src.nodes[0].shape[0] or batch_index >= subgraphs_dst.nodes[0].shape[0]:
+        raise IndexError(f"batch_index {batch_index} is outside the sampled batch")
+
+    event_lookup = {
+        int(event_id): (
+            int(event_src),
+            int(event_dst),
+            float(event_time),
+        )
+        for event_src, event_dst, event_time, event_id in zip(
+            data.src_node_ids,
+            data.dst_node_ids,
+            data.node_interact_times,
+            data.edge_ids,
+        )
+    }
+
+    print("\n" + "=" * 80)
+    print("COMPUTATIONAL SUBGRAPH")
+    print(f"query: {int(src)} -> {int(dst)} at time {float(timestamp)}")
+    print(f"batch index: {batch_index}")
+
+    for side, root, subgraph in (
+        ("source", src, subgraphs_src),
+        ("destination", dst, subgraphs_dst),
+    ):
+        print(f"\n[{side.upper()} SIDE] root node: {int(root)}")
+        for hop, (nodes, events, times) in enumerate(
+            zip(subgraph.nodes, subgraph.events, subgraph.timestamps), start=1
+        ):
+            nodes_at_hop = np.asarray(nodes[batch_index]).reshape(-1)
+            events_at_hop = np.asarray(events[batch_index]).reshape(-1)
+            times_at_hop = np.asarray(times[batch_index]).reshape(-1)
+            print(f"  hop {hop}: {len(nodes_at_hop)} sampled interactions")
+            for position, (node, event_id, event_time) in enumerate(
+                zip(nodes_at_hop, events_at_hop, times_at_hop)
+            ):
+                event = event_lookup.get(int(event_id))
+                if event is None:
+                    event_text = "event endpoints unavailable"
+                else:
+                    event_text = f"event endpoints={event[0]} -> {event[1]}, data_time={event[2]}"
+                print(
+                    f"    [{position}] node={int(node)}, event={int(event_id)}, "
+                    f"sampled_time={float(event_time)}, {event_text}"
+                )
+    print("=" * 80)
+
 def get_edge_by_id(link_index):
     src, dst, time_stamp, edge_id = full_data.src_node_ids[link_index], full_data.dst_node_ids[link_index], full_data.node_interact_times[link_index], full_data.edge_ids[link_index]
     if CONFIG.model.task == "regression":
@@ -130,6 +213,23 @@ subgraphs_src = BatchSubgraphs(*subgraphs_src, edge_feat_src)
 subgraphs_src.to(CONFIG.model.device)
 subgraphs_dst = BatchSubgraphs(*subgraphs_dst, edge_feat_dst)
 subgraphs_dst.to(CONFIG.model.device)
+
+if args.print_subgraph:
+    if not 0 <= args.subgraph_index < len(srcs):
+        raise IndexError(
+            f"subgraph_index {args.subgraph_index} is outside the sampled batch "
+            f"of size {len(srcs)}"
+        )
+    print_computational_subgraph(
+        src=int(srcs[args.subgraph_index]),
+        dst=int(dsts[args.subgraph_index]),
+        timestamp=float(timestamps[args.subgraph_index]),
+        subgraphs_src=subgraphs_src,
+        subgraphs_dst=subgraphs_dst,
+        data=full_data,
+        batch_index=args.subgraph_index,
+    )
+    
 
 predicts = model(src_node_ids=srcs,
                 dst_node_ids=dsts,

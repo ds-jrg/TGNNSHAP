@@ -44,8 +44,8 @@ def k_hop_temporal_subgraph(df, num_hops, event_idx):
     verify_dataframe_unify(df)
 
     df_new = df.copy()
-    df_new['u'] -= 1
-    df_new['i'] -= 1
+    # df_new['u'] -= 1
+    # df_new['i'] -= 1
     df_new = df_new[df_new.e_idx <= event_idx] # ignore events latter than event_idx
 
     # center_node = df_new.iloc[event_idx-1, 0]
@@ -56,8 +56,8 @@ def k_hop_temporal_subgraph(df, num_hops, event_idx):
 
     # import ipdb; ipdb.set_trace()
     node_mask = np.zeros((num_nodes,), dtype=bool)
-    source_nodes = np.array(df_new.iloc[:, 0], dtype=int) # user nodes, 0--k-1
-    target_nodes = np.array(df_new.iloc[:, 1], dtype=int) # item nodes, k--N-1, N is the number of total users and items
+    source_nodes = np.array(df_new.loc[:, 'u'], dtype=int) # user nodes, 0--k-1
+    target_nodes = np.array(df_new.loc[:, 'i'], dtype=int) # item nodes, k--N-1, N is the number of total users and items
 
     for _ in range(num_hops):
         node_mask.fill(False)
@@ -73,8 +73,8 @@ def k_hop_temporal_subgraph(df, num_hops, event_idx):
     
     assert center_node in subset
 
-    source_nodes = np.array(df_new.iloc[:, 0], dtype=int)
-    target_nodes = np.array(df_new.iloc[:, 1], dtype=int)
+    source_nodes = np.array(df_new.loc[:, 'u'], dtype=int)
+    target_nodes = np.array(df_new.loc[:, 'i'], dtype=int)
 
     node_mask.fill(False)
     node_mask[ subset ] = True
@@ -89,10 +89,10 @@ def k_hop_temporal_subgraph(df, num_hops, event_idx):
     subgraph_df = df_new.iloc[edge_mask, :].copy()
     # subgraph_df.iloc[:, 1] -= base # recover user item naming indices
     # import ipdb; ipdb.set_trace()
-    assert center_node in subgraph_df.iloc[:, 0].values
+    assert center_node in subgraph_df.loc[:, "u"].values
 
-    subgraph_df['u'] += 1
-    subgraph_df['i'] += 1
+    # subgraph_df['u'] += 1
+    # subgraph_df['i'] += 1
 
     return subgraph_df
 
