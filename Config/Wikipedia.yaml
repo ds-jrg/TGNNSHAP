@@ -1,6 +1,6 @@
 ModelConfig:
   model_name: TGAT
-  device: "cpu"
+  device: "cuda:0"
   num_neighbors: 20
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6
@@ -23,7 +23,7 @@ ModelConfig:
   omit_normalization: False
 
 DataConfig:
-  dataset_name: Wikipedia
+  dataset_name: wikipedia
   folder: Data/wikipedia
   edge_feat_file: /ml_wikipedia.npy
   node_feat_file: /ml_wikipedia_node.npy
@@ -61,3 +61,6 @@ TempMEConfig:
 TGNNExplainerConfig:
   num_rollouts: 500
   min_atoms: 100
+Shapley:
+  batch_size: 500
+  max_num_samples: 550

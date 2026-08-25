@@ -23,7 +23,7 @@ ModelConfig:
   omit_normalization: False
 
 DataConfig:
-  dataset_name: Reddit
+  dataset_name: reddit
   folder: Data/reddit
   edge_feat_file: /ml_reddit.npy
   node_feat_file: /ml_reddit_node.npy
@@ -61,3 +61,6 @@ TempMEConfig:
 TGNNExplainerConfig:
   num_rollouts: 500
   min_atoms: 6
+Shapley:
+  batch_size: 500
+  max_num_samples: 550

@@ -133,12 +133,22 @@ class TGNNExplainerConfig:
     min_atoms: int         
     '''Minimum number of atoms for explanation'''
 
+
+@dataclass
+class ShapleyConfig:
+    '''Configuration for Shapley-based explainers'''
+    batch_size: int
+    '''Maximum number of model instances queried at once by the Shapley explainers'''
+    max_num_samples: int
+    '''Maximum number of coalition samples used for feature-level Monte Carlo explanations'''
+
 class CONFIG:
     _instance = None
     model: ModelConfig
     data: DataConfig
     tempME: TempMEConfig
     tgnnExplainerConfig: TGNNExplainerConfig
+    shapley: ShapleyConfig
     train: TrainConfig
 
 
@@ -154,5 +164,6 @@ class CONFIG:
                 cls._instance.data = DataConfig(**config['DataConfig']) # type: ignore
                 cls._instance.tempME = TempMEConfig(**config['TempMEConfig']) # type: ignore
                 cls._instance.tgnnExplainerConfig = TGNNExplainerConfig(**config['TGNNExplainerConfig']) # type: ignore
+                cls._instance.shapley = ShapleyConfig(**config['Shapley']) # type: ignore
                 cls._instance.train = TrainConfig(**config['TrainConfig']) # type: ignore
         return cls._instance
