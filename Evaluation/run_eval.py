@@ -96,7 +96,7 @@ else:
 regressor = NeuralNetworkSrcDst(input_dim=node_raw_features.shape[1], num_layers=CONFIG.model.num_reg_layers, hidden_dim=CONFIG.model.hidden_reg_layers_dim)
 model = TGNN(dynamic_backbone, regressor)
 
-model.load_state_dict(torch.load(trained_model_path, weights_only=True))
+model.load_state_dict(torch.load(trained_model_path, weights_only=True, map_location=CONFIG.model.device))
 model.to(CONFIG.model.device)
 model.eval()
 

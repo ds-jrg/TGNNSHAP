@@ -57,9 +57,9 @@ class BaseExplainerTG(object):
             num_neighbors = self.model.num_neighbors # NOTE: important
             edge_idx_preserve_list = self.ori_subgraph_df.e_idx.to_list() # NOTE: e_idx column
 
-            u = self.all_events.iloc[target_event_idx, 0] # because target_event_idx should represent e_idx. e_idx = index + 1
-            i = self.all_events.iloc[target_event_idx, 1]
-            ts = self.all_events.iloc[target_event_idx, 2]
+            u = self.all_events.u[target_event_idx] # because target_event_idx should represent e_idx. e_idx = index + 1
+            i = self.all_events.i[target_event_idx] # because target_event_idx should represent e_idx. e_idx = index + 1
+            ts = self.all_events.ts[target_event_idx] # because target_event_idx should represent e_idx. e_idx = index + 1
 
             # new_u, new_i = tgat_node_reindex(u, i, self.num_users)
             # accu_e_idx = [ [target_event_idx+1, target_event_idx+1]] # NOTE: for subsequent '-1' operation
