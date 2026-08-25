@@ -11,9 +11,6 @@ from Config.config import CONFIG
 
 CONFIG = CONFIG()
 
-degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 10}
-
-
 def load_data_shuffle(mode, data):    
     _, _, full_data, _, _, _ = get_link_prediction_data(val_ratio=CONFIG.train.val_ratio,
                             test_ratio=CONFIG.train.test_ratio,
@@ -131,7 +128,7 @@ def pre_processing(ngh_finder, sampler, src, dst, ts, val_e_idx_l, num_neighbors
 
 
 def get_null_distribution(data_name):
-    num_neighbors = degree_dict[data_name]
+    num_neighbors = CONFIG.model.num_neighbors
     rand_sampler, test_src_l, test_dst_l, test_ts_l, test_label_l, test_e_idx_l, finder = load_data_shuffle(mode="test", data=data_name)
     num_distribution = pre_processing(finder, rand_sampler, test_src_l, test_dst_l, test_ts_l, test_e_idx_l,num_neighbors)
     return num_distribution

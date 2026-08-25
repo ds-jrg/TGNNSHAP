@@ -24,10 +24,8 @@ from utils import RandEdgeSampler, load_subgraph, load_subgraph_margin, get_item
 from models import *
 from GraphM import GraphMixer
 from TGN.tgn import TGN
-
-
-degree_dict = {"wikipedia": 20, "reddit": 20, "uci": 30, "mooc": 60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 10}
-
+from Config.config import CONFIG
+CONFIG = CONFIG()
 
 def norm_imp(imp):
     imp[imp < 0] = 0
@@ -649,7 +647,7 @@ if __name__ == '__main__':
         sys.exit(0)
     
     args.device = "mps"
-    args.n_degree = degree_dict[args.data]
+    args.n_degree = CONFIG.model.num_neighbors
     args.ratios = [0.01, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.30]
     gnn_model_path = osp.join(osp.dirname(osp.realpath(__file__)), 'params', 'tgnn',
                               f'{args.base_type}_{args.data}.pt')

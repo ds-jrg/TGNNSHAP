@@ -19,9 +19,10 @@ from utils import EarlyStopMonitor, RandEdgeSampler, load_subgraph_margin, get_i
 from models import *
 from GraphM import GraphMixer
 from TGN.tgn import TGN
+from Config.config import CONFIG
+CONFIG = CONFIG()
 
 
-degree_dict = {"wikipedia":20, "reddit":20 ,"uci":30 ,"mooc":60, "enron": 30, "canparl": 30, "uslegis": 30}
 ### Argument and global variables
 parser = argparse.ArgumentParser('Motif Enhancement Verification')
 parser.add_argument('--gpu', type=int, default=0, help='idx for the gpu to use')
@@ -285,7 +286,7 @@ def train(args, base_model, train_pack, test_pack, train_edge, test_edge):
 
 if __name__ == '__main__':
     args.device = torch.device('cuda:{}'.format(args.gpu))
-    args.n_degree = degree_dict[args.data]
+    args.n_degree = CONFIG.model.num_neighbors
     gnn_model_path = osp.join(osp.dirname(osp.realpath(__file__)), 'params', 'tgnn',
                               f'{args.base_type}_{args.data}.pt')
     base_model = torch.load(gnn_model_path).to(args.device)

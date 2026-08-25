@@ -215,6 +215,7 @@ class NeighborSampler:
         :return: (neighbor_ids, edge_ids, timestamps, sampled_probabilities_or_None),
             each of shape (num_historical_neighbors, )
         """
+        node_id = int(node_id)  # in case it's a numpy int
         # searchsorted returns index i such that list[i - 1] < interact_time <= list[i].
         i = np.searchsorted(self.nodes_neighbor_times[node_id], interact_time)
 

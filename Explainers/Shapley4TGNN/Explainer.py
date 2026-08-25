@@ -24,6 +24,32 @@ import time
 CONFIG = CONFIG()
 
 
+def _predict_model_batchwise(
+    model: TGNN,
+    srcs: np.ndarray,
+    dsts: np.ndarray,
+    time_stamps: np.ndarray,
+    src_subgraphs: BatchSubgraphs,
+    dst_subgraphs: BatchSubgraphs,
+) -> torch.Tensor:
+    """Query the model in configurable chunks and preserve input order."""
+    batch_size = CONFIG.shapley.batch_size
+    if batch_size <= 0:
+        raise ValueError("Shapley.batch_size must be positive")
+
+    predictions = []
+    for start in range(0, len(srcs), batch_size):
+        end = min(start + batch_size, len(srcs))
+        predictions.append(model(
+            srcs[start:end], dsts[start:end], time_stamps[start:end],
+            src_subgraphs=src_subgraphs[start:end],
+            dst_subgraphs=dst_subgraphs[start:end],
+            time_gap=CONFIG.model.time_gap,
+            edges_are_positive=False,
+        ))
+    return torch.cat(predictions, dim=0)
+
+
 class ShapleyExplainerEvents(Explainer):
     """
     Explains TGNN predictions by computing Shapley values over events
@@ -109,8 +135,9 @@ class ShapleyExplainerEvents(Explainer):
             sg_dst.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
 
             # Model prediction
-            y = self.model(srcs, dsts, time_stamps,
-                            src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+            y = _predict_model_batchwise(
+                self.model, srcs, dsts, time_stamps, sg_src, sg_dst
+            )
             if CONFIG.model.task == "classification":
                 y = y.sigmoid()
 
@@ -275,7 +302,7 @@ class ShapleyExplainerFeatures(Explainer):
         return players, None, None
 
     def explain_instance(self, src: int, dst: int, timestamp: int, silent=False,
-                         event_id: Optional[int] = None, max_num_samples=550):
+                         event_id: Optional[int] = None, max_num_samples: Optional[int] = None):
         """
         Explain features contributing to a given node interaction.
 
@@ -295,7 +322,8 @@ class ShapleyExplainerFeatures(Explainer):
         event_id : Optional[int]
             Specific event ID to focus on.
         max_num_samples : int
-            Limit for Monte Carlo sampling.
+            Limit for Monte Carlo sampling. If omitted, the value from
+            ``Shapley.max_num_samples`` is used.
 
         Returns
         -------
@@ -307,6 +335,8 @@ class ShapleyExplainerFeatures(Explainer):
             self.mean_values, self.mean_delta_timings = compute_default_values(
                 self.data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
             )
+        if max_num_samples is None:
+            max_num_samples = CONFIG.shapley.max_num_samples
         # Get local computational subgraph
         subgraphs_src, subgraphs_dst, event_ids, imputation_data = default_values_subgraph(
             src, dst, timestamp, self.neighbor_finder, self.data,
@@ -435,7 +465,7 @@ class ShapleyExplainerFeatures(Explainer):
         shap.Explanation
             SHAP explanation object for event features.
         """
-        batch_size = 500  # maximum number of feature permutations per evaluation batch
+        batch_size = CONFIG.shapley.batch_size
         use_cache = False    # flag for reusing predictions when masking features
 
         predictions = np.array([])  # stores predictions for repeated calls
@@ -503,7 +533,9 @@ class ShapleyExplainerFeatures(Explainer):
                         subgraphs_dst_list[i_sample].mask_event_timing(per_batch_mask, feature_mask[i_sample, 1])
 
                     # Run model in mini-batches combining different feature masks
-                    num_feature_masks_per_batch = int(batch_size / event_mask.shape[0])
+                    num_feature_masks_per_batch = max(
+                        1, int(batch_size / event_mask.shape[0])
+                    )
                     for i_sample in range(0, feature_mask.shape[0], num_feature_masks_per_batch):
                         sg_src_batch = concat_subgraphs(subgraphs_src_list[i_sample:i_sample + num_feature_masks_per_batch])
                         sg_dst_batch = concat_subgraphs(subgraphs_dst_list[i_sample:i_sample + num_feature_masks_per_batch])
@@ -512,7 +544,10 @@ class ShapleyExplainerFeatures(Explainer):
                         dsts = np.full((sg_src_batch.get_num_instances(),), dst)
                         time_stamps = np.full((sg_src_batch.get_num_instances(),), timestamp)
 
-                        y = self.model(srcs, dsts, time_stamps, src_subgraphs=sg_src_batch, dst_subgraphs=sg_dst_batch, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+                        y = _predict_model_batchwise(
+                            self.model, srcs, dsts, time_stamps,
+                            sg_src_batch, sg_dst_batch
+                        )
                         if CONFIG.model.task == "classification":
                             y = y.sigmoid()
 
@@ -625,7 +660,9 @@ class ShapleyExplainerFeatures(Explainer):
         to_mask_events = event_permutations == 0
         sg_src.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
         sg_dst.mask_events(event_ids, event_mask=to_mask_events, data_per_event=imputation_data)
-        y_ref = self.model(srcs, dsts, time_stamps, src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+        y_ref = _predict_model_batchwise(
+            self.model, srcs, dsts, time_stamps, sg_src, sg_dst
+        )
         if CONFIG.model.task == "classification":
             y_ref = y_ref.sigmoid()
         return y_ref.reshape((1, -1))
@@ -692,8 +729,9 @@ class ShapleyExplainerFeatures(Explainer):
             sg_src.replace_event(event_masks_src, mask[0], default_time_stamps[i], mask[2:])
             sg_dst.replace_event(event_masks_dst, mask[0], default_time_stamps[i], mask[2:])
             # Forward pass
-            y[i, :] = self.model(srcs, dsts, time_stamps, src_subgraphs=sg_src, dst_subgraphs=sg_dst,
-                                 time_gap=CONFIG.model.time_gap, edges_are_positive=False).reshape(-1).detach().cpu()
+            y[i, :] = _predict_model_batchwise(
+                self.model, srcs, dsts, time_stamps, sg_src, sg_dst
+            ).reshape(-1).detach().cpu()
             if CONFIG.model.task == "classification":
                 y[i, :] = y[i, :].sigmoid()
         return y
@@ -735,7 +773,7 @@ class ShapleyExplainerFeatures(Explainer):
     def explain_event_monte_carlo(
         self, src: int, dst: int, timestamp: int, event_id: int,
         subgraphs_src: BatchSubgraphs, subgraphs_dst: BatchSubgraphs,
-        imputation_data: dict, silent: bool, max_num_samples=250
+        imputation_data: dict, silent: bool, max_num_samples: Optional[int] = None
     ):
         """
         Estimate event-feature Shapley values using Monte Carlo sampling.
@@ -757,8 +795,9 @@ class ShapleyExplainerFeatures(Explainer):
             Default feature/timing values for masked events.
         silent : bool
             Whether to suppress SHAP progress output.
-        max_num_samples : int, default=250
-            Maximum number of permutation samples.
+        max_num_samples : Optional[int]
+            Maximum number of permutation samples. If omitted, the value from
+            ``Shapley.max_num_samples`` is used.
 
         Returns
         -------
@@ -767,6 +806,8 @@ class ShapleyExplainerFeatures(Explainer):
         """
         event_ids = np.concat([subgraphs_src.get_events(), subgraphs_dst.get_events()]).reshape((-1,))
         event_ids = np.unique(event_ids[event_ids != 0])
+        if max_num_samples is None:
+            max_num_samples = CONFIG.shapley.max_num_samples
 
         def val_features(feature_mask: np.ndarray):
             k = min(len(event_ids) * 5, max_num_samples)
@@ -877,9 +918,13 @@ class ShapleyExplainerFeatures(Explainer):
             feat_pos = torch.where(feat_mask_pos, event_features_torch, default_values)
             sg_src.replace_event_2D(event_id_masks_src, feat_neg[:, 0], feat_neg[:, 1].cpu().numpy(), feat_neg[:, 2:])
             sg_dst.replace_event_2D(event_id_masks_dst, feat_neg[:, 0], feat_neg[:, 1].cpu().numpy(), feat_neg[:, 2:])
-            y_neg = self.model(srcs, dsts, time_stamps, src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+            y_neg = _predict_model_batchwise(
+                self.model, srcs, dsts, time_stamps, sg_src, sg_dst
+            )
             sg_src.replace_event_2D(event_id_masks_src, feat_pos[:, 0], feat_pos[:, 1].cpu().numpy(), feat_pos[:, 2:])
             sg_dst.replace_event_2D(event_id_masks_dst, feat_pos[:, 0], feat_pos[:, 1].cpu().numpy(), feat_pos[:, 2:])
-            y_pos = self.model(srcs, dsts, time_stamps, src_subgraphs=sg_src, dst_subgraphs=sg_dst, time_gap=CONFIG.model.time_gap, edges_are_positive=False)
+            y_pos = _predict_model_batchwise(
+                self.model, srcs, dsts, time_stamps, sg_src, sg_dst
+            )
             owen_vals[f] = torch.mean(y_pos - y_neg).detach().cpu().item()
         return owen_vals, event_features_torch[0, :].detach().cpu().numpy(), self._get_labels(event_features.shape[0])

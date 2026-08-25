@@ -274,45 +274,50 @@ timings_list = []
 
 
 def evaluate_explainer(explainer: Explainer, explainer_name):
-    start = time.time_ns()
-    explainer.initialize()
-    end = time.time_ns()
+    try:
+        start = time.time_ns()
+        explainer.initialize()
+        end = time.time_ns()
 
-    intermediate_results_path = (
-        f"Results/{CONFIG.data.dataset_name}/{explainer_name}.csv"
-    )
-    timings_path = (
-        f"Results/{CONFIG.data.dataset_name}/{explainer_name}_timings.csv"
-    )
-    timing_columns = ["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"]
-    os.makedirs(os.path.dirname(timings_path), exist_ok=True)
-    pd.DataFrame([{
-        "Time(ns)": end - start,
-        "Time(s)": (end - start) / 1_000_000_000,
-        "Explainer": explainer_name,
-        "Stage": "Init",
-        "Instance Index": None,
-    }], columns=timing_columns).to_csv(timings_path, index=False)
+        intermediate_results_path = (
+            f"Results/{CONFIG.data.dataset_name}/{explainer_name}.csv"
+        )
+        timings_path = (
+            f"Results/{CONFIG.data.dataset_name}/{explainer_name}_timings.csv"
+        )
+        timing_columns = ["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"]
+        os.makedirs(os.path.dirname(timings_path), exist_ok=True)
+        pd.DataFrame([{
+            "Time(ns)": end - start,
+            "Time(s)": (end - start) / 1_000_000_000,
+            "Explainer": explainer_name,
+            "Stage": "Init",
+            "Instance Index": None,
+        }], columns=timing_columns).to_csv(timings_path, index=False)
 
-    results, exec_times = explainer.evaluate(
-        srcs,
-        dsts,
-        timestamps,
-        targets,
-        edge_raw_features,
-        store_coalitions=args.store_coalitions,
-        intermediate_results_path=intermediate_results_path,
-        timings_path=timings_path,
-        explainer_name=explainer_name,
-    )
-    results["Explainer"] = explainer_name
-    aggregated_results_path = (
-        f"Results/{CONFIG.data.dataset_name}/{explainer_name}_agg.csv"
-    )
-    os.makedirs(os.path.dirname(aggregated_results_path), exist_ok=True)
-    results.to_csv(aggregated_results_path, index=False)
-    
-    timings = pd.read_csv(timings_path)
+        results, exec_times = explainer.evaluate(
+            srcs,
+            dsts,
+            timestamps,
+            targets,
+            edge_raw_features,
+            store_coalitions=args.store_coalitions,
+            intermediate_results_path=intermediate_results_path,
+            timings_path=timings_path,
+            explainer_name=explainer_name,
+        )
+        results["Explainer"] = explainer_name
+        aggregated_results_path = (
+            f"Results/{CONFIG.data.dataset_name}/{explainer_name}_agg.csv"
+        )
+        os.makedirs(os.path.dirname(aggregated_results_path), exist_ok=True)
+        results.to_csv(aggregated_results_path, index=False)
+        
+        timings = pd.read_csv(timings_path)
+    except Exception as e:
+        print(f"Error during evaluation of {explainer_name}: {e}")
+        results = pd.DataFrame(columns=["Explainer", "Metric", "Value"])
+        timings = pd.DataFrame(columns=["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"])
     return results, timings
     
     

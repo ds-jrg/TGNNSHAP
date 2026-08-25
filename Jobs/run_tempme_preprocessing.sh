@@ -4,12 +4,12 @@
 #SBATCH -t 48:00:00
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:a100:1
-#SBATCH -J "Shapley_Experiment_tgnn_%a"
-#SBATCH -p gpu
+#SBATCH --mem=200G
+#SBATCH -J "TempME_preprocessing_%a"
+#SBATCH -p normal
 #SBATCH -A hpc-prf-wiki
-#SBATCH --array=1-1
+#SBATCH --array=0-6
+#SBATCH -o "TempME_preprocessing_%a.out"
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
 module load lib/libffi/3.4.4-GCCcore-13.2.0
@@ -19,6 +19,6 @@ source .tgnn_shap_venv/bin/activate
 
 options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 
-echo "Running evaluation for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
+echo "Running preprocessing for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
-python -m Evaluation.run_eval --dataset ${options[$SLURM_ARRAY_TASK_ID]} --explainer tgnnexplainer
+python -m Evaluation.run_tempme_preprocessing --dataset ${options[$SLURM_ARRAY_TASK_ID]}

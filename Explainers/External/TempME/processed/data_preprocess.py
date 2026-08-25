@@ -11,6 +11,8 @@ import pickle
 import torch
 import pandas as pd
 import numpy as np
+from Config.config import CONFIG
+CONFIG = CONFIG()
 
 PROJECT_ROOT = osp.dirname(osp.dirname(osp.realpath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -18,10 +20,8 @@ if PROJECT_ROOT not in sys.path:
 
 from utils import NeighborFinder, RandEdgeSampler
 
-degree_dict = {"wikipedia":20, "reddit":20 ,"uci":30 ,"mooc":60, "enron": 30, "canparl": 30, "uslegis": 30, "LinkPred": 10}
 
-data = "LinkPred"
-NUM_NEIGHBORS = degree_dict[data]
+NUM_NEIGHBORS = CONFIG.model.num_neighbors
 
 
 def load_data(mode, data):
