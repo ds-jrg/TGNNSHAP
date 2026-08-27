@@ -124,7 +124,7 @@ class TempMEExplainer(Explainer):
     @staticmethod
     def train_model_if_missing(model, train_neighbor_finder, full_neighbor_finder, full_random_sampler, train_data: Data, full_data: Data, device):
         """Train and cache the TempME model only when its checkpoint is absent."""
-        path = f"Saved_models/{CONFIG.data.dataset_name}/TempME/{CONFIG.data.dataset_name}.pt"
+        path = f"Saved_models/{CONFIG.data.dataset_name}/tempme/{CONFIG.data.dataset_name}.pt"
         if os.path.exists(path):
             print("Using cached TempME trained model.")
             return
@@ -174,7 +174,7 @@ class TempMEExplainer(Explainer):
         self._row_by_edge = cached["row_by_edge"]
         print("Using cached TempME preprocessing data.")
         self.explainer.to(self.device)
-        path = f"Saved_models/{CONFIG.data.dataset_name}/TempME/{CONFIG.data.dataset_name}.pt"
+        path = f"Saved_models/{CONFIG.data.dataset_name}/tempme/{CONFIG.data.dataset_name}.pt"
         if not os.path.exists(path):
             raise FileNotFoundError(
                 f"TempME trained model is missing: {path}. "

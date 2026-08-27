@@ -45,7 +45,7 @@ TrainConfig:
   test_interval_epochs: 10
 
 TempMEConfig:
-  bs: 500
+  bs: 200
   n_epoch: 100
   out_dim: 40
   hid_dim: 64

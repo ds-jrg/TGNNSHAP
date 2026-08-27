@@ -233,8 +233,11 @@ def eval_one_epoch_tgat(args, base_model, explainer, full_ngh_finder, sampler, s
     ratio_AUC_aps, ratio_AUC_auc, ratio_AUC_acc, ratio_AUC_prob, ratio_AUC_logit  = [],[],[],[],[]
     base_model = base_model.eval()
     num_test_instance = len(src) - 1
-    num_test_batch = math.ceil(num_test_instance / args.test_bs)-1
     idx_list = np.arange(num_test_instance)
+    idx_list = idx_list[-100_000:]  # Limit to 100,000 instances for training
+    num_test_batch = math.ceil(len(idx_list) / args.test_bs) - 1
+    idx_list = np.arange(num_test_instance)
+    idx_list = idx_list[-100_000:]  # Limit to 100,000 instances for training
     criterion = torch.nn.BCEWithLogitsLoss()
     for k in tqdm(range(num_test_batch)):
         s_idx = k * args.test_bs
@@ -503,14 +506,18 @@ def train(args, base_model, train_data, full_data, train_pack, test_pack, train_
     criterion = torch.nn.BCEWithLogitsLoss()
     src_l, dst_l, ts_l, e_idx_l = train_data.src_node_ids, train_data.dst_node_ids, train_data.node_interact_times, train_data.edge_ids
     test_src_l, test_dst_l, test_ts_l, test_e_idx_l = full_data.src_node_ids, full_data.dst_node_ids, full_data.node_interact_times, full_data.edge_ids
-
+    
+    # Limit the number of training instances to 
+    
     num_instance = len(src_l) - 1
-    num_batch = math.ceil(num_instance / args.bs)
+    idx_list = np.arange(num_instance)
+    np.random.shuffle(idx_list)
+    idx_list = idx_list[:100_000]  # Limit to 100,000 instances for training
+    num_batch = math.ceil(len(idx_list) / args.bs)
     best_acc = 0
     print('num of training instances: {}'.format(num_instance))
     print('num of batches per epoch: {}'.format(num_batch))
-    idx_list = np.arange(num_instance)
-    np.random.shuffle(idx_list)
+    
 
     for epoch in range(args.n_epoch):
         train_aps = []

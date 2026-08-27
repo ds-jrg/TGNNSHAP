@@ -16,5 +16,5 @@ launch.json
 venv/*
 .tgnnshap_venv/
 .tgnn_shap_venv/
-.*.out
+*.out
 Results/*

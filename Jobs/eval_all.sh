@@ -1,15 +1,16 @@
 #!/bin/bash
 #SBATCH --mail-type END,FAIL
 #SBATCH --mail-user sussekl@mail.uni-paderborn.de
-#SBATCH -t 48:00:00
+#SBATCH -t 12:00:00
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:a100:1
-#SBATCH -J "Shapley_Experiment_tgnn_%a"
+#SBATCH -J "Shap_event_%a"
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
-#SBATCH --array=1-1
+#SBATCH --array=6
+#SBATCH -o "Shap_event_eval_%a.out"
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
 module load lib/libffi/3.4.4-GCCcore-13.2.0
@@ -21,4 +22,4 @@ options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 
 echo "Running evaluation for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
-python -m Evaluation.run_eval --dataset ${options[$SLURM_ARRAY_TASK_ID]} --explainer tgnnexplainer
+python -m Evaluation.run_eval --dataset ${options[$SLURM_ARRAY_TASK_ID]} --explainer shapley_feature

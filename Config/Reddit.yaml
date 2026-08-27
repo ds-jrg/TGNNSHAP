@@ -19,7 +19,7 @@ ModelConfig:
   max_input_sequence_length: 32
   dropout: 0.1
   task: classification
-  trained_model_path: Saved_models/Reddit/TGAT/TGAT_seed0.pkl
+  trained_model_path: Saved_models/reddit/TGAT/TGAT_seed0.pkl
   omit_normalization: False
 
 DataConfig:
@@ -45,8 +45,8 @@ TrainConfig:
   test_interval_epochs: 10
 
 TempMEConfig:
-  bs: 500
-  n_epoch: 10
+  bs: 200
+  n_epoch: 100
   out_dim: 40
   hid_dim: 64
   temp: 0.07
