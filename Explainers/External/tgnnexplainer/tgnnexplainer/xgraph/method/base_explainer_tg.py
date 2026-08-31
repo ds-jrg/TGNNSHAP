@@ -111,9 +111,9 @@ class BaseExplainerTG(object):
             raise NotImplementedError
 
         candidate_events = unique_e_idx
-        if len(candidate_events) > self.threshold_num:
-            candidate_events = candidate_events[-self.threshold_num:]
-            candidate_events = sorted(candidate_events)
+        # if len(candidate_events) > self.threshold_num:
+        #     candidate_events = candidate_events[-self.threshold_num:]
+        #     candidate_events = sorted(candidate_events)
         # import ipdb; ipdb.set_trace()
         
         if self.debug_mode:
