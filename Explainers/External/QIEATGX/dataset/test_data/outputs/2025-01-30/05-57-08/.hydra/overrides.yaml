@@ -1,0 +1,6 @@
+- datasets=wikipedia
+- device_id=1
+- explainers=pg_explainer_tg
+- models=tgat
+- factual=1
+- existed=1

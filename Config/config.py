@@ -142,6 +142,15 @@ class ShapleyConfig:
     max_num_samples: int
     '''Maximum number of coalition samples used for feature-level Monte Carlo explanations'''
 
+
+@dataclass
+class QIEAConfig:
+    '''Configuration for the QIEA-TGX explainer.'''
+    func: str = "ob_half"
+    n_trials: int = 500
+    pop_size: int = 20
+    QIEA_agents: int = 1
+
 class CONFIG:
     _instance = None
     model: ModelConfig
@@ -149,6 +158,7 @@ class CONFIG:
     tempME: TempMEConfig
     tgnnExplainerConfig: TGNNExplainerConfig
     shapley: ShapleyConfig
+    qiea: QIEAConfig
     train: TrainConfig
 
 
@@ -165,5 +175,6 @@ class CONFIG:
                 cls._instance.tempME = TempMEConfig(**config['TempMEConfig']) # type: ignore
                 cls._instance.tgnnExplainerConfig = TGNNExplainerConfig(**config['TGNNExplainerConfig']) # type: ignore
                 cls._instance.shapley = ShapleyConfig(**config['Shapley']) # type: ignore
+                cls._instance.qiea = QIEAConfig(**config.get('QIEA')) # type: ignore
                 cls._instance.train = TrainConfig(**config['TrainConfig']) # type: ignore
         return cls._instance

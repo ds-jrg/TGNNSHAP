@@ -253,6 +253,9 @@ _alias_map = {
     "tgnn": "tgnn",
     "tgnnexplainer": "tgnn",
     "tempme": "tempme",
+    "qiea": "qiea",
+    "qieatgx": "qiea",
+    "qiea-tgx": "qiea",
     "random": "random",
     "randomexplainer": "random",
     "baseline": "random",
@@ -264,10 +267,10 @@ for s in _selected:
     if mapped:
         selected.add(mapped)
     else:
-        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_feature, tgnn, tempme, random, all")
+        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_feature, tgnn, tempme, qiea, random, all")
 
 if "all" in selected:
-    selected = {"shapley_event", "shapley_feature", "tgnn", "tempme", "random"}
+    selected = {"shapley_event", "shapley_feature", "tgnn", "tempme", "qiea", "random"}
 
 results_list = []
 timings_list = []
@@ -406,6 +409,22 @@ if "tempme" in selected:
     results_list.append(results)
     timings_list.append(timings)
     
+    explainer = None
+    torch.cuda.empty_cache()
+    print("Done.")
+
+
+# ## QIEA-TGX
+if "qiea" in selected:
+    from Explainers.External.QIEATGX.Explainer import QIEATGXExplainer
+
+    print("Evaluating QIEA-TGX...")
+    explainer = QIEATGXExplainer(model, full_neighbor_sampler, full_data)
+    results, timings = evaluate_explainer(explainer, "QIEA-TGX")
+
+    results_list.append(results)
+    timings_list.append(timings)
+
     explainer = None
     torch.cuda.empty_cache()
     print("Done.")

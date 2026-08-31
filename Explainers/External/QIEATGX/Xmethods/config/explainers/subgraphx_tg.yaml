@@ -1,0 +1,43 @@
+
+results_save: True
+results_dir: ''
+mcts_saved_dir: ''
+load_results: False
+use_gpu: True
+explainer_name: 'subgraphx_tg'
+debug_mode: False
+explainer_ckpt_dir: ''
+use_pg_explainer: True
+pg_positive: True
+
+
+parallel_degree: 1 # 1, 2, ...
+
+param:
+  wikipedia:
+    explanation_level: 'event'
+    verbose: True
+    rollout: 500
+    c_puct: 100
+    min_atoms: 100
+    candiate_num: 20
+  reddit:
+    explanation_level: 'event'
+    verbose: True
+    rollout: 250
+    c_puct: 100
+    min_atoms: 6
+    candiate_num: 100
+  simulate_v1:
+    explanation_level: 'event'
+    verbose: True
+    rollout: 500
+    c_puct: 100
+    min_atoms: 20 # only influence use_pg_explainer's fidelity-rollout curve
+  simulate_v2:
+    explanation_level: 'event'
+    verbose: True
+    rollout: 500
+    c_puct: 100
+    min_atoms: 20
+  

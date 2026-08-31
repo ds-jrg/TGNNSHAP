@@ -27,8 +27,9 @@ def load_results(dataset_name: str, as_df: bool = True) -> pd.DataFrame:
     feat_df = pd.read_csv(f"Results/{dataset_name}_Shapley4TGNNFeature_agg.csv")
     tgnn_df = pd.read_csv(f"Results/{dataset_name}_TGNNExplainer_agg.csv")
     tempme_df = pd.read_csv(f"Results/{dataset_name}_TempME_agg.csv")
-
-    results_list = [event_df, feat_df, tgnn_df, tempme_df]
+    qiea_df = pd.read_csv(f"Results/{dataset_name}_QIEA-TGX_agg.csv") 
+    results_list = [event_df, feat_df, tgnn_df, tempme_df, qiea_df]
+    
     if not as_df:
         return results_list
     
@@ -40,7 +41,8 @@ def create_diagram(df, metric: str, dataset_name: str, filename: str, silent: bo
     "Shapley4TGNNEvent": "Shapley (Event)",
     "Shapley4TGNNFeature": "Shapley (Feature)",
     "TGNNExplainer": "TGNN Explainer",
-    "TempME": "TempME"
+    "TempME": "TempME",
+    "QIEA-TGX": "QIEA-TGX",
     }
     plt.rcParams["font.family"] = "serif"
     plt.rcParams["font.size"] = 10

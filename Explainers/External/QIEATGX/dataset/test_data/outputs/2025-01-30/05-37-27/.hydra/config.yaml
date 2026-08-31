@@ -1,0 +1,97 @@
+device_id: 1
+sparse_ratio: 0.1
+factual: 1
+existed: 1
+evaluate: true
+seed: 0
+func_index: 1
+n_trials: 500
+pop_size: 20
+mutate_pb: 0.1
+best_ind_pb: 0.0
+QIEA_agents: 1
+models:
+  model_saving_dir: ''
+  model_name: tgat
+  ckpt_path: ''
+  param:
+    wikipedia:
+      num_layers: 2
+      use_time: time
+      agg_method: attn
+      attn_mode: prod
+      num_neighbors: 10
+      num_heads: 2
+      dropout: 0.0
+      uniform_sample_ngh: false
+    reddit:
+      num_layers: 2
+      use_time: time
+      agg_method: attn
+      attn_mode: prod
+      num_neighbors: 10
+      num_heads: 2
+      dropout: 0.0
+      uniform_sample_ngh: false
+    simulate_v1:
+      num_layers: 2
+      use_time: time
+      agg_method: attn
+      attn_mode: prod
+      num_neighbors: 10
+      num_heads: 2
+      dropout: 0.0
+      uniform_sample_ngh: false
+    simulate_v2:
+      num_layers: 2
+      use_time: time
+      agg_method: attn
+      attn_mode: prod
+      num_neighbors: 10
+      num_heads: 2
+      dropout: 0.0
+      uniform_sample_ngh: false
+datasets:
+  dataset_name: wikipedia
+  dataset_path: ''
+  explain_idx_filepath: ''
+  explain_idx_filename: wikipedia
+explainers:
+  results_save: true
+  results_dir: ''
+  mcts_saved_dir: ''
+  load_results: false
+  use_gpu: true
+  explainer_name: subgraphx_tg
+  debug_mode: false
+  explainer_ckpt_dir: ''
+  use_pg_explainer: true
+  pg_positive: true
+  parallel_degree: 1
+  param:
+    wikipedia:
+      explanation_level: event
+      verbose: true
+      rollout: 500
+      c_puct: 100
+      min_atoms: 100
+      candiate_num: 20
+    reddit:
+      explanation_level: event
+      verbose: true
+      rollout: 250
+      c_puct: 100
+      min_atoms: 6
+      candiate_num: 100
+    simulate_v1:
+      explanation_level: event
+      verbose: true
+      rollout: 500
+      c_puct: 100
+      min_atoms: 20
+    simulate_v2:
+      explanation_level: event
+      verbose: true
+      rollout: 500
+      c_puct: 100
+      min_atoms: 20

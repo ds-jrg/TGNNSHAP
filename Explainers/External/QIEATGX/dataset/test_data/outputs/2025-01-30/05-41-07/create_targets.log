@@ -1,0 +1,4 @@
+[2025-01-30 05:41:15,836][TGNNmodels.xgraph.models.ext.tgat.module][INFO] - Aggregation uses attention model
+[2025-01-30 05:41:15,872][TGNNmodels.xgraph.models.ext.tgat.module][INFO] - Using scaled prod attention
+[2025-01-30 05:41:15,908][TGNNmodels.xgraph.models.ext.tgat.module][INFO] - Using scaled prod attention
+[2025-01-30 05:41:15,908][TGNNmodels.xgraph.models.ext.tgat.module][INFO] - Using time encoding

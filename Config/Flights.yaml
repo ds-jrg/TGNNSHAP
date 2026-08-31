@@ -64,3 +64,9 @@ TGNNExplainerConfig:
 Shapley:
   batch_size: 500
   max_num_samples: 550
+
+QIEA:
+  func: ob_half
+  n_trials: 500
+  pop_size: 20
+  QIEA_agents: 1

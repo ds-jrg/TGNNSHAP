@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - models: tgat
+  - datasets: wikipedia # wikipedia, reddit
+  # - explainers: subgraphx_tg # tgnnexplainer
+  - explainers: pg_explainer_tg # except for tgnnexplainer
+device_id: 1
+sparse_ratio: 0.1
+factual: 1
+existed: 1
+evaluate: True
+seed: 0
+func_index: 1
+n_trials: 500
+pop_size: 20
+mutate_pb: 0.1
+best_ind_pb: 0.0
+QIEA_agents: 1
