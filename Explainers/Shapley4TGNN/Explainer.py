@@ -370,11 +370,12 @@ class ShapleyExplainerFeatures(Explainer):
             raise ValueError("Either `event_id` or `top_k` must be specified for feature-level explanation.")
 
         # Prepare events for explanation
-        
-        event_timings = self.data.dataset.ts[ids_to_explain-1] if self.data.dataset is not None else []
-        event_srcs = self.data.src_node_ids[ids_to_explain-1]
-        event_dsts = self.data.dst_node_ids[ids_to_explain-1]
-        event_types = self.neighbor_finder.edge_labels[ids_to_explain-1]
+        id_to_pos_dict = {e : pos for pos, e in enumerate(self.data.edge_ids)}
+        id_pos = np.array([id_to_pos_dict[e] for e in ids_to_explain], dtype=int)
+        event_timings = self.data.dataset.ts[id_pos] if self.data.dataset is not None else []
+        event_srcs = self.data.src_node_ids[id_pos]
+        event_dsts = self.data.dst_node_ids[id_pos]
+        event_types = self.neighbor_finder.edge_labels[id_pos]
         events = list(zip(ids_to_explain, event_srcs, event_dsts, event_types, event_timings))
         pbar = tqdm(events, total=len(events), desc='Explain event') if not silent else events
 
