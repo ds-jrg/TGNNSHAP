@@ -119,7 +119,7 @@ print(f"{n_events * n_explained_events * n_reps * n_sample_sizes} total explanat
 print(f"Output file: {file}")
 print(f"{edge_raw_features.shape[1] + 2} many features per event")
 
-max_sample_sizes = min(2**(edge_raw_features.shape[1] + 2), 5_000)
+max_sample_sizes = 3_000
 sample_sizes = np.linspace(5, max_sample_sizes, num=n_sample_sizes, dtype=int)
 print(f"Sample sizes: {sample_sizes}")
 
