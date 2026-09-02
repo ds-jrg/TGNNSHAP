@@ -241,6 +241,10 @@ predicts = model(src_node_ids=srcs,
 
 edge_info["Prediction"] = predicts.detach().cpu().numpy()
 
+subgraphs_src = None
+subgraphs_dst = None
+torch.cuda.empty_cache()
+
 # normalize explainer selection
 _selected = [args.explainer]
 # map aliases
@@ -288,6 +292,8 @@ def evaluate_explainer(explainer: Explainer, explainer_name):
         timings_path = (
             f"Results/{CONFIG.data.dataset_name}/{explainer_name}_timings.csv"
         )
+        print(f"Saved intermediate results to {intermediate_results_path}")
+        print(f"Saved timings to {timings_path}")
         timing_columns = ["Time(ns)", "Time(s)", "Explainer", "Stage", "Instance Index"]
         os.makedirs(os.path.dirname(timings_path), exist_ok=True)
         pd.DataFrame([{

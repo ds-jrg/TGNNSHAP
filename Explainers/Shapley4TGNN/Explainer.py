@@ -23,6 +23,15 @@ import time
 
 CONFIG = CONFIG()
 
+import subprocess as sp
+import os
+
+def get_gpu_memory():
+    command = "nvidia-smi --query-gpu=memory.free --format=csv"
+    memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
+    memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
+    return memory_free_values
+
 
 def _predict_model_batchwise(
     model: TGNN,
@@ -46,7 +55,8 @@ def _predict_model_batchwise(
             dst_subgraphs=dst_subgraphs[start:end],
             time_gap=CONFIG.model.time_gap,
             edges_are_positive=False,
-        ))
+        ).cpu().detach())
+        torch.cuda.empty_cache()
     return torch.cat(predictions, dim=0)
 
 
