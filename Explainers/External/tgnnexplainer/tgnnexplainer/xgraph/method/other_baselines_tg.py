@@ -91,7 +91,7 @@ class PGExplainerExt(BaseExplainerTG):
         self.explainer_ckpt_path = self._ckpt_path(self.explainer_ckpt_dir, self.model_name, self.dataset_name, self.explainer_name)
         # if exists, load. Otherwise train.
         if self.explainer_ckpt_path.exists():
-            state_dict = torch.load(self.explainer_ckpt_path)
+            state_dict = torch.load(self.explainer_ckpt_path, map_location=self.device)
             self.explainer_model.load_state_dict(state_dict)
             print(f'explainer ckpt loaded from {str(self.explainer_ckpt_path)}')
         else:
