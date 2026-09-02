@@ -237,7 +237,8 @@ predicts = model(src_node_ids=srcs,
                 src_subgraphs = subgraphs_src,
                 dst_subgraphs = subgraphs_dst,
                 time_gap=CONFIG.model.time_gap,
-                edges_are_positive=True).squeeze(dim=-1).sigmoid()
+                edges_are_positive=True,
+                num_neighbors=CONFIG.model.num_neighbors).squeeze(dim=-1).sigmoid()
 
 edge_info["Prediction"] = predicts.detach().cpu().numpy()
 

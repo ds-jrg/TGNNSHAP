@@ -1,0 +1,72 @@
+ModelConfig:
+  model_name: CAWN
+  device: "mps"
+  num_neighbors: 10
+  sample_neighbor_strategy: recent
+  time_scaling_factor: 1e-6
+  num_walk_heads: 8
+  num_heads: 2
+  num_layers: 2
+  num_reg_layers: 1
+  hidden_reg_layers_dim: 64
+  node_dim: 4
+  walk_length: 2
+  time_gap: 100
+  time_feat_dim: 32
+  position_feat_dim: 16
+  patch_size: 1
+  channel_embedding_dim: 64
+  max_input_sequence_length: 32
+  dropout: 0.1
+  task: classification
+  trained_model_path: Saved_models/LinkPred/CAWN/CAWN_seed0.pkl
+  omit_normalization: false
+
+DataConfig:
+  dataset_name: LinkPredCAWN
+  folder: Data/LinkPred
+  edge_feat_file: /edges.npy
+  node_feat_file: /edges_node.npy
+  index_file: /edges.csv
+  feature_names_file: ""
+  node_names_file: ""
+  is_directed: false
+
+TrainConfig:
+  num_epochs: 100
+  batch_size: 200
+  optimizer: Adam
+  weight_decay: 0.0001
+  patience: 10
+  learning_rate: 0.001
+  val_ratio: 0.15
+  test_ratio: 0.15
+  num_runs: 1
+  test_interval_epochs: 1
+
+TempMEConfig:
+  bs: 200
+  n_epoch: 100
+  out_dim: 40
+  hid_dim: 64
+  temp: 0.07
+  prior_p: 0.3
+  lr: 0.001
+  drop_out: 0.1
+  if_bern: true
+  weight_decay: 0.0001
+  beta: 0.5
+  device: "cpu"
+
+TGNNExplainerConfig:
+  num_rollouts: 50
+  min_atoms: 1
+Shapley:
+  batch_size: 500
+  max_num_samples: 550
+
+QIEA:
+  func: ob_half
+  n_trials: 500
+  pop_size: 20
+  QIEA_agents: 1

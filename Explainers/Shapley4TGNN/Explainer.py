@@ -55,6 +55,7 @@ def _predict_model_batchwise(
             dst_subgraphs=dst_subgraphs[start:end],
             time_gap=CONFIG.model.time_gap,
             edges_are_positive=False,
+            num_neighbors=CONFIG.model.num_neighbors
         ).cpu().detach())
         torch.cuda.empty_cache()
     return torch.cat(predictions, dim=0)
