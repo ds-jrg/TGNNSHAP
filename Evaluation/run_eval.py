@@ -252,6 +252,9 @@ _selected = [args.explainer]
 _alias_map = {
     "shapley4tgnnevent": "shapley_event",
     "shapley_event": "shapley_event",
+    "shapley4tgnneventpositive": "shapley_event_positive",
+    "shapley_event_positive": "shapley_event_positive",
+    "shapley_event_pos": "shapley_event_positive",
     "shapleyfeature": "shapley_feature",
     "shapley_feature": "shapley_feature",
     "feature": "shapley_feature",
@@ -272,10 +275,10 @@ for s in _selected:
     if mapped:
         selected.add(mapped)
     else:
-        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_feature, tgnn, tempme, qiea, random, all")
+        raise ValueError(f"Unknown explainer '{s}'. Allowed: shapley_event, shapley_event_positive, shapley_feature, tgnn, tempme, qiea, random, all")
 
 if "all" in selected:
-    selected = {"shapley_event", "shapley_feature", "tgnn", "tempme", "qiea", "random"}
+    selected = {"shapley_event", "shapley_event_positive", "shapley_feature", "tgnn", "tempme", "qiea", "random"}
 
 results_list = []
 timings_list = []
@@ -342,6 +345,21 @@ if "shapley_event" in selected:
     results_list.append(results)
     timings_list.append(timings)
     
+    explainer = None
+    torch.cuda.empty_cache()
+    print("Done.")
+
+if "shapley_event_positive" in selected:
+    from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerEventsPositive
+
+    print("Evaluating Shapley4TGNNEventPositive...")
+
+    explainer = ShapleyExplainerEventsPositive(model, full_neighbor_sampler, full_data, edge_raw_features)
+    results, timings = evaluate_explainer(explainer, "Shapley4TGNNEventPositive")
+
+    results_list.append(results)
+    timings_list.append(timings)
+
     explainer = None
     torch.cuda.empty_cache()
     print("Done.")

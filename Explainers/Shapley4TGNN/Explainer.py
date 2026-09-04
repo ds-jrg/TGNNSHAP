@@ -3,6 +3,7 @@ Shapley Value-based Explainers for Temporal Graph Neural Networks (TGNN).
 
 This module contains two explainers:
 - ShapleyExplainerEvents: Explains predictions by attributing importance to events.
+- ShapleyExplainerEventsPositive: Event-level variant using positive attributions only.
 - ShapleyExplainerFeatures: Explains predictions by attributing importance to event features.
 
 Both use variants of Shapley Value computation (KernelSHAP, Monte Carlo, Permutation).
@@ -238,6 +239,39 @@ class ShapleyExplainerEvents(Explainer):
         for i in range(len(events)):
             coalitions[i, :i + 1] = events[:i + 1]
 
+        return coalitions, None, None
+
+
+class ShapleyExplainerEventsPositive(ShapleyExplainerEvents):
+    """Event-level Shapley explainer using only positive attributions.
+
+    Positive events are ordered by their raw Shapley value and added to
+    cumulative coalitions.  The final coalition always contains every event
+    so that evaluation can reach the complete computational subgraph.
+    """
+
+    def build_coalitions(self, explanation):
+        """Build cumulative coalitions from positive Shapley values only."""
+        event_ids, shap_values = explanation
+        events = np.asarray(event_ids).reshape((-1,))
+        values = np.asarray(shap_values.values).reshape((-1,))
+
+        positive = values > 0
+        positive_events = events[positive]
+        positive_values = values[positive]
+        sorting = np.argsort(-positive_values, kind="stable")
+        positive_events = positive_events[sorting]
+
+        # The extra row is intentionally retained even when all events are
+        # positive, in order to always append the complete coalition.
+        coalitions = np.zeros(
+            (len(positive_events) + 1, len(events)),
+            dtype=np.float64,
+        )
+        for i in range(len(positive_events)):
+            coalitions[i, :i + 1] = positive_events[:i + 1]
+
+        coalitions[-1, :len(events)] = events
         return coalitions, None, None
 
 
