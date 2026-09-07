@@ -3,7 +3,7 @@ import os
 parser = ArgumentParser()
 parser.add_argument("-d", "--dataset", dest="dataset",
                     help="dataset name", metavar="DATASET", required=True)
-parser.add_argument("-num_samples", "-n", dest="n_events", type=int, default=10_000)
+parser.add_argument("-num_samples", "-n", dest="num_samples", type=int, default=10_000)
 
 args = parser.parse_args()
 
@@ -93,7 +93,7 @@ if not os.path.exists(input_file):
 output_file = f"Generated_explanations/{args.dataset}/Shapley4TGNNFeature_high_quality.csv"
 if not os.path.exists(output_file):
     with open(output_file, 'w') as f:
-        f.write("e_id,explained_e_id,rep,time_taken,model,num_samples,explanations\n")
+        f.write("e_id,explained_e_id,time_taken,model,num_samples,explanations\n")
 
 
 explanations = pd.read_csv(input_file)
@@ -117,11 +117,10 @@ for e_id, explained_e_id in tqdm(events.values, desc="Computing explanation vari
     explanation = np.array(sorted(explanation, key=lambda x: (x[0], x[5])))
     row = {"e_id": e_id, 
             "explained_e_id": explained_e_id,
-            "rep": args.rep,
             "model": "monte_carlo",
             "num_samples": args.num_samples,
             "explanations": explanation[:,-1].astype(np.float32)}
     with open(output_file, 'a') as f:
-        f.write(f"{row['e_id']},{row['explained_e_id']},{row['rep']},{row['model']},{row['num_samples']},{row['explanations'].tolist()}\n")
+        f.write(f"{row['e_id']},{row['explained_e_id']},{row['model']},{row['num_samples']},{row['explanations'].tolist()}\n")
                     
 print("Done generating explanations.")       

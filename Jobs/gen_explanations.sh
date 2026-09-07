@@ -20,4 +20,4 @@ options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 
 echo "Running for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
-python -m Evaluation.misc_tests.approximation_quality --dataset ${options[$SLURM_ARRAY_TASK_ID]} --n_events 10 --n_explained_events 2 --n_reps 5 --n_sample_sizes 10 
+python -m Evaluation.misc_tests.high_quality --dataset ${options[$SLURM_ARRAY_TASK_ID]} 

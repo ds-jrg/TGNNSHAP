@@ -18,3 +18,4 @@ venv/*
 .tgnn_shap_venv/
 *.out
 Results/*
+Generated_explantions/*
