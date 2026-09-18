@@ -66,7 +66,7 @@ def evaluate_file(file_name, directory, random_directory, neighbor_finder: Neigh
         feature_ids_random = random_explanations[random_explanations[:, 0] == random_e_id, :]
         
         assert np.array_equal(np.sort(feature_ids[:, 1]), np.sort(feature_ids_random[:, 1])), \
-            f"Feature IDs do not match for event {e_id} and random event {random_e_id}. Feature IDs: {np.sort(feature_ids[:, 1])}, Random Feature IDs:
+            f"Feature IDs do not match for event {e_id} and random event {random_e_id}."
 
         src = int(data.src_node_ids[e_id])
         dst = int(data.dst_node_ids[e_id])

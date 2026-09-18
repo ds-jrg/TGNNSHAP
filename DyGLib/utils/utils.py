@@ -1308,9 +1308,9 @@ class BatchSubgraphs:
                 self.timestamps[i][mask] = 0
                 self.event_features[i][mask, :] = 0
                 self.event_attention[i][mask] = 0
-                #self.node_attention[i][mask] = 0
+                self.node_attention[i][mask] = 0
                 self.timing_attention[i][mask] = 0
-                #self.events[i][mask] = 0
+                self.events[i][mask] = 0
 
     def keep_features(self, kept_features: List[np.ndarray], data_per_event: Optional[dict] = None):
         """

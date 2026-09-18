@@ -47,6 +47,7 @@ from DyGLib.models.TGAT import TGAT
 from DyGLib.models.modules import MultiHeadAttention
 from DyGLib.models.modules import BatchSubgraphs
 from Explainers.utils import Explainer, to_object_array
+from Evaluation.utils import evaluate_feature_explanations
 
 
 EXPLAINER_ALIASES = {
@@ -183,6 +184,9 @@ def write_explanation(path: str, explanations, sg_src, sg_dst) -> None:
 
 def create_explanations(name: str, model, full_sampler, train_sampler, full_data,
                       train_data, full_random_sampler, edge_features) -> None:
+    np.random.seed(42)
+    random.seed(42)
+    
     srcs, dsts, timestamps, targets = select_test_edges(
         full_data, train_data, args.num_samples
     )
@@ -293,8 +297,7 @@ def load_explanation(file_name, folder, model, sampler):
     )
     return src, dst, timestamp, explanations, sg_src, sg_dst, logits, predicts
 
-
-def prepare_subgraphs(sg_src, sg_dst, explanations):
+def prepare_subgraphs(sg_src:BatchSubgraphs, sg_dst:BatchSubgraphs, explanations):
     events = np.unique(np.concatenate([sg_src.get_events(), sg_dst.get_events()], axis=1))
     events = events[events != 0]
     if len(events) == 0:
@@ -369,7 +372,9 @@ def evaluate_explanations(name: str, model, sampler) -> None:
 
 
 def main() -> None:
+    
     name = normalize_explainer_name(args.explainer)
+    
     model, full_data, train_data, _val_data, _test_data, full_sampler, train_sampler, full_random_sampler = load_model_and_data()
     edge_features = full_sampler.edge_features.detach().cpu().numpy()
 
@@ -377,7 +382,12 @@ def main() -> None:
         create_explanations(name, model, full_sampler, train_sampler, full_data,
                           train_data, full_random_sampler, edge_features)
     if args.action in ("evaluate", "both"):
-        evaluate_explanations(name, model, full_sampler)
+        if name == "random_feature":
+            raise ValueError("Random feature explainer is only evaluated with the feature explainer.")
+        if name == "shapley_feature":
+            evaluate_feature_explanations(model, full_sampler, full_data, edge_features, SPARSITY_THRESHOLDS)
+        else:
+            evaluate_explanations(name, model, full_sampler)
 
 
 if __name__ == "__main__":
