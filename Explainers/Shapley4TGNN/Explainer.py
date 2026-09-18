@@ -175,7 +175,7 @@ class ShapleyExplainerEvents(Explainer):
 
         return event_ids, shap_values
     
-    def explain_instance(self, src, dst, timestamp, silent=False):
+    def explain_instance(self, src, dst, timestamp, silent=False, subgraphs_src = None, subgraphs_dst = None):
         """
         Compute event-level Shapley values for a given node pair at a given time.
 
@@ -206,7 +206,8 @@ class ShapleyExplainerEvents(Explainer):
         # Get local temporal subgraphs and imputation defaults
         subgraphs_src, subgraphs_dst, event_ids, imputation_data = default_values_subgraph(
             src, dst, timestamp, self.neighbor_finder, self.data,
-            self.mean_delta_timings, self.mean_values
+            self.mean_delta_timings, self.mean_values,
+            sg_src=subgraphs_src, sg_dst=subgraphs_dst
         )
         return self._explain_instance(src, dst, timestamp, subgraphs_src, subgraphs_dst, event_ids, imputation_data, silent)
 

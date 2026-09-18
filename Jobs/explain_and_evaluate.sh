@@ -8,7 +8,9 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-dedsm
+#SBATCH -J "Explain_and_evaluate_%A_%a"
 #SBATCH --array=5
+
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
 module load lib/libffi/3.4.4-GCCcore-13.2.0

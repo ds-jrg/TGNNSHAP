@@ -1,9 +1,9 @@
-"""Generate temporal-graph explanations and evaluate their coalitions.
+"""Generate temporal-graph explanations and evaluate them.
 
 The pipeline is controlled by ``--action``:
 
-* ``create``: generate and store explanation coalitions and timings;
-* ``evaluate``: evaluate already stored coalition files;
+* ``create``: generate and store explanations and timings;
+* ``evaluate``: evaluate already stored explanation files;
 * ``both``: perform both steps (the default).
 
 Model construction and data loading are delegated to ``Evaluation.model``.
@@ -30,12 +30,10 @@ parser.add_argument("--explainer", required=True, help="explainer to use")
 parser.add_argument(
     "--action", "--mode", dest="action",
     choices=("create", "evaluate", "both"), default="both",
-    help="create coalitions, evaluate existing coalitions, or do both",
+    help="create explanations, evaluate existing explanations, or do both",
 )
 parser.add_argument("--num_samples", type=int, default=200,
-                    help="number of test interactions used when creating coalitions")
-parser.add_argument("--store_coalitions", type=bool, default=True,
-                    help="retained for CLI compatibility; coalitions are always stored")
+                    help="number of test interactions used when creating explanations")
 args = parser.parse_args()
 
 # CONFIG is a singleton. Initialise it before importing modules whose classes
@@ -66,9 +64,13 @@ EXPLAINER_ALIASES = {
     "qiea": "qiea",
     "qieatgx": "qiea",
     "qiea-tgx": "qiea",
-    "random": "random",
-    "randomexplainer": "random",
-    "baseline": "random",
+    "random": "random_event",
+    "random_event": "random_event",
+    "randomevent": "random_event",
+    "randomexplainer": "random_event",
+    "baseline": "random_event",
+    "random_feature": "random_feature",
+    "randomfeature": "random_feature",
 }
 
 EXPLAINER_DIRECTORIES = {
@@ -78,7 +80,8 @@ EXPLAINER_DIRECTORIES = {
     "tgnn": "TGNNExplainer",
     "tempme": "TempME",
     "qiea": "QIEA-TGX",
-    "random": "Random",
+    "random_event": "RandomEvent",
+    "random_feature": "RandomFeature",
 }
 
 
@@ -124,8 +127,13 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
             model, full_sampler, full_data, edge_features, None,
             shapley_alg="MonteCarlo", top_k=3,
         )
-    if name == "random":
-        from Explainers.RandomExplainer.Explainer import RandomExplainer
+    if name in ("random_event", "random_feature"):
+        from Explainers.RandomExplainer.Explainer import (
+            RandomExplainer,
+            RandomFeatureExplainer,
+        )
+        if name == "random_feature":
+            return RandomFeatureExplainer(model, full_sampler, full_data, edge_features, top_k=3)
         return RandomExplainer(model, full_sampler, full_data, edge_features)
     if name == "tgnn":
         from Explainers.External.tgnnexplainer.Explainer import SubgraphXTExplainer
@@ -158,9 +166,9 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
     raise AssertionError(f"Unhandled explainer: {name}")
 
 
-def write_coalition(path: str, coalitions, sg_src, sg_dst) -> None:
+def write_explanation(path: str, explanations, sg_src, sg_dst) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    payload = {"coalitions": coalitions}
+    payload = {"explanations": explanations}
     if sg_src is not None and sg_dst is not None:
         payload.update(
             sg_src_events=to_object_array(sg_src.events),
@@ -173,7 +181,7 @@ def write_coalition(path: str, coalitions, sg_src, sg_dst) -> None:
     np.savez_compressed(path, **payload)
 
 
-def create_coalitions(name: str, model, full_sampler, train_sampler, full_data,
+def create_explanations(name: str, model, full_sampler, train_sampler, full_data,
                       train_data, full_random_sampler, edge_features) -> None:
     srcs, dsts, timestamps, targets = select_test_edges(
         full_data, train_data, args.num_samples
@@ -183,7 +191,7 @@ def create_coalitions(name: str, model, full_sampler, train_sampler, full_data,
         full_random_sampler, edge_features,
     )
 
-    directory = os.path.join("Results", "Coalitions", CONFIG.data.dataset_name,
+    directory = os.path.join("Results", "Explanations", CONFIG.data.dataset_name,
                              EXPLAINER_DIRECTORIES[name])
     timing_path = os.path.join(
         "Results", "Evaluation", CONFIG.data.dataset_name,
@@ -208,11 +216,11 @@ def create_coalitions(name: str, model, full_sampler, train_sampler, full_data,
 
     for index, (src, dst, timestamp, _target) in enumerate(
         tqdm(zip(srcs, dsts, timestamps, targets), total=len(srcs),
-             desc=f"Creating {EXPLAINER_DIRECTORIES[name]} coalitions")
+             desc=f"Creating {EXPLAINER_DIRECTORIES[name]} explanations")
     ):
         start = time.time_ns()
         explanation = explainer.explain_instance(src, dst, timestamp, silent=True)
-        coalitions, sg_src, sg_dst = explainer.build_coalitions(explanation)
+        explanations, sg_src, sg_dst = explainer.build_coalitions(explanation)
         elapsed = time.time_ns() - start
         pd.DataFrame([{
             "Time(ns)": elapsed,
@@ -223,12 +231,12 @@ def create_coalitions(name: str, model, full_sampler, train_sampler, full_data,
             "Dst": dst,
             "Timestamp": timestamp,
         }]).to_csv(timing_path, mode="a", header=False, index=False)
-        write_coalition(
+        write_explanation(
             os.path.join(directory, f"{src}_to_{dst}_{timestamp}.npz"),
-            coalitions, sg_src, sg_dst,
+            explanations, sg_src, sg_dst,
         )
 
-    print(f"Saved coalitions to {directory}")
+    print(f"Saved explanations to {directory}")
     print(f"Saved explanation timings to {timing_path}")
 
 
@@ -261,11 +269,11 @@ def get_prediction(model, sampler, srcs, dsts, timestamps, subgraphs_src=None,
     return logits, 1 / (1 + np.exp(-logits)), subgraphs_src, subgraphs_dst
 
 
-def restore_coalition(file_name, folder, model, sampler):
+def load_explanation(file_name, folder, model, sampler):
     src_text, _, dst_text, timestamp_text = file_name[:-4].split("_")
     src, dst, timestamp = int(src_text), int(dst_text), float(timestamp_text)
     data = np.load(os.path.join(folder, file_name), allow_pickle=True)
-    coalitions = data["coalitions"]
+    explanations = data["explanations"] if "explanations" in data.files else data["coalitions"]
     sg_src = sg_dst = None
     if "sg_src_events" in data.files and "sg_dst_events" in data.files:
         sg_src_events, sg_dst_events = data["sg_src_events"].tolist(), data["sg_dst_events"].tolist()
@@ -283,26 +291,26 @@ def restore_coalition(file_name, folder, model, sampler):
         model, sampler, np.array([src]), np.array([dst]), np.array([timestamp]),
         sg_src, sg_dst,
     )
-    return src, dst, timestamp, coalitions, sg_src, sg_dst, logits, predicts
+    return src, dst, timestamp, explanations, sg_src, sg_dst, logits, predicts
 
 
-def prepare_subgraphs(sg_src, sg_dst, coalitions):
+def prepare_subgraphs(sg_src, sg_dst, explanations):
     events = np.unique(np.concatenate([sg_src.get_events(), sg_dst.get_events()], axis=1))
     events = events[events != 0]
     if len(events) == 0:
-        raise ValueError("Cannot evaluate a coalition with an empty computational subgraph")
+        raise ValueError("Cannot evaluate an explanation with an empty computational subgraph")
     sg_src.repeat_nodes(len(SPARSITY_THRESHOLDS))
     sg_dst.repeat_nodes(len(SPARSITY_THRESHOLDS))
     sg_src_neg, sg_dst_neg = copy.deepcopy(sg_src), copy.deepcopy(sg_dst)
-    pos = np.zeros((len(SPARSITY_THRESHOLDS), coalitions.shape[1] + 1), dtype=int)
+    pos = np.zeros((len(SPARSITY_THRESHOLDS), explanations.shape[1] + 1), dtype=int)
     neg = np.tile(events, (len(SPARSITY_THRESHOLDS), 1))
-    sparsities = ((coalitions != 0) & np.isin(coalitions, events)).sum(axis=1) / len(events)
+    sparsities = ((explanations != 0) & np.isin(explanations, events)).sum(axis=1) / len(events)
     for i, threshold in enumerate(SPARSITY_THRESHOLDS):
         mask = sparsities <= threshold
         if mask.any():
-            coalition = coalitions[mask][np.argmax(sparsities[mask])]
-            pos[i, :-1] = coalition
-            neg[i, np.isin(events, coalition)] = 0
+            explanation = explanations[mask][np.argmax(sparsities[mask])]
+            pos[i, :-1] = explanation
+            neg[i, np.isin(events, explanation)] = 0
     neg = np.concatenate([neg, np.zeros((len(SPARSITY_THRESHOLDS), 1), dtype=int)], axis=1)
     sg_src.keep_events(pos)
     sg_dst.keep_events(pos)
@@ -312,10 +320,10 @@ def prepare_subgraphs(sg_src, sg_dst, coalitions):
 
 
 def evaluate_file(file_name, folder, model, sampler):
-    src, dst, timestamp, coalitions, sg_src, sg_dst, complete_logit, complete_predict = restore_coalition(
+    src, dst, timestamp, explanations, sg_src, sg_dst, complete_logit, complete_predict = load_explanation(
         file_name, folder, model, sampler)
     sg_src_pos, sg_dst_pos, sg_src_neg, sg_dst_neg = prepare_subgraphs(
-        sg_src, sg_dst, coalitions)
+        sg_src, sg_dst, explanations)
     values = np.full(len(SPARSITY_THRESHOLDS), timestamp)
     src_values = np.full(len(SPARSITY_THRESHOLDS), src)
     dst_values = np.full(len(SPARSITY_THRESHOLDS), dst)
@@ -343,21 +351,21 @@ def evaluate_file(file_name, folder, model, sampler):
     })
 
 
-def evaluate_coalitions(name: str, model, sampler) -> None:
-    directory = os.path.join("Results", "Coalitions", CONFIG.data.dataset_name,
+def evaluate_explanations(name: str, model, sampler) -> None:
+    directory = os.path.join("Results", "Explanations", CONFIG.data.dataset_name,
                              EXPLAINER_DIRECTORIES[name])
     if not os.path.isdir(directory):
-        raise FileNotFoundError(f"Coalition directory not found: {directory}")
+        raise FileNotFoundError(f"Explanation directory not found: {directory}")
     files = sorted(file for file in os.listdir(directory) if file.endswith(".npz"))
     if not files:
-        raise FileNotFoundError(f"No coalition files found in {directory}")
+        raise FileNotFoundError(f"No explanation files found in {directory}")
     frames = [evaluate_file(file, directory, model, sampler)
-              for file in tqdm(files, desc="Evaluating coalition files", unit="file")]
+              for file in tqdm(files, desc="Evaluating explanation files", unit="file")]
     output = os.path.join("Results", "Evaluation", CONFIG.data.dataset_name,
-                          f"{EXPLAINER_DIRECTORIES[name]}_coalition_evaluation.csv")
+                          f"{EXPLAINER_DIRECTORIES[name]}_explanation_evaluation.csv")
     os.makedirs(os.path.dirname(output), exist_ok=True)
     pd.concat(frames, ignore_index=True).to_csv(output, index=False)
-    print(f"Saved coalition evaluation results to {output}")
+    print(f"Saved explanation evaluation results to {output}")
 
 
 def main() -> None:
@@ -366,10 +374,10 @@ def main() -> None:
     edge_features = full_sampler.edge_features.detach().cpu().numpy()
 
     if args.action in ("create", "both"):
-        create_coalitions(name, model, full_sampler, train_sampler, full_data,
+        create_explanations(name, model, full_sampler, train_sampler, full_data,
                           train_data, full_random_sampler, edge_features)
     if args.action in ("evaluate", "both"):
-        evaluate_coalitions(name, model, full_sampler)
+        evaluate_explanations(name, model, full_sampler)
 
 
 if __name__ == "__main__":

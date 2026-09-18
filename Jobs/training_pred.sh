@@ -4,7 +4,7 @@
 #SBATCH -t 24:00:00
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:a100:1
-#SBATCH -J "Shapley_Experiment_%a"
+#SBATCH -J "Training_pred_%A_%a"
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
 #SBATCH --array=0-0

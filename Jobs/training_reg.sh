@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=2G
 #SBATCH --gres=gpu:a100:1
-#SBATCH -J "Shapley_Experiment"
+#SBATCH -J "Training_reg_%A_%a"
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
 

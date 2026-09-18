@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
+#SBATCH -J "Feat_explainer_%A_%a"
 #SBATCH --array=0-6
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
