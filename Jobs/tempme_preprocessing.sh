@@ -4,11 +4,11 @@
 #SBATCH -t 48:00:00
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH --mem=200G
+#SBATCH --mem=150G
 #SBATCH -J "TempME_preprocessing_%a"
 #SBATCH -p normal
 #SBATCH -A hpc-prf-wiki
-#SBATCH --array=0-6
+#SBATCH --array=5
 #SBATCH -o "TempME_preprocessing_%a.out"
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
@@ -21,4 +21,4 @@ options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 
 echo "Running preprocessing for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
-python -m Evaluation.run_tempme_preprocessing --dataset ${options[$SLURM_ARRAY_TASK_ID]}
+python -m Evaluation.tempme_preprocessing --dataset ${options[$SLURM_ARRAY_TASK_ID]}

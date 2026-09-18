@@ -131,7 +131,8 @@ class NeighborFinder:
         else:
             # use quick index mapping to get node index and edge index
             # a problem though may happens when there is a tie of timestamps
-            cut_idx = self.nodeedge2idx[src_idx].get(e_idx) if src_idx > 0 else 0
+            cut_idx = bisect_left_adapt(neighbors_ts, cut_time) #LS: Use this to prevent neighbors with equal time stamp 
+            #cut_idx = self.nodeedge2idx[src_idx].get(e_idx) if src_idx > 0 else 0
             if cut_idx is None:
                 raise IndexError('e_idx {} not found in edge list of {}'.format(e_idx, src_idx))
         if not return_binary_prob:
@@ -226,6 +227,9 @@ class NeighborFinder:
             else:
                 # get a bunch of sampled idx by using sequential binary comparison, may need to be written in C later on
                 sampled_idx = seq_binary_sample(ngh_binomial_prob, num_neighbor)
+            sampled_idx = np.argsort(ngh_ts)[-num_neighbor:]  # LS: sort by time, get the last num_neighbor indices
+            if len(sampled_idx) < num_neighbor:
+                sampled_idx = np.concatenate([sampled_idx, np.random.choice(sampled_idx, num_neighbor - len(sampled_idx), replace=True)])  # LS: randomly sample from the last num_neighbor indices
             out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
             out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
             out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]

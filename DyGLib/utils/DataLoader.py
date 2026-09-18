@@ -215,9 +215,9 @@ def get_node_classification_data(dataset_name: str, val_ratio: float, test_ratio
             full_data, train_data, val_data, test_data, (Data object)
     """
     # Load data and train val test split
-    graph_df = pd.read_csv('./processed_data/{}/ml_{}.csv'.format(dataset_name, dataset_name))
-    edge_raw_features = np.load('./processed_data/{}/ml_{}.npy'.format(dataset_name, dataset_name))
-    node_raw_features = np.load('./processed_data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name))
+    graph_df = pd.read_csv('./Data/{}/ml_{}.csv'.format(dataset_name, dataset_name))
+    edge_raw_features = np.load('./Data/{}/ml_{}.npy'.format(dataset_name, dataset_name))
+    node_raw_features = np.load('./Data/{}/ml_{}_node.npy'.format(dataset_name, dataset_name))
 
     NODE_FEAT_DIM = EDGE_FEAT_DIM = 172
     assert NODE_FEAT_DIM >= node_raw_features.shape[1], f'Node feature dimension in dataset {dataset_name} is bigger than {NODE_FEAT_DIM}!'

@@ -1,7 +1,7 @@
 /.venv39/*
 /Data/*
 /Saved_models/*
-/Logs/*
+/Slurm/*
 __pycache__/
 **/__pycache__/
 *.py[cod]
@@ -18,4 +18,5 @@ venv/*
 .tgnn_shap_venv/
 *.out
 Results/*
-Generated_explantions/*
+.vscode
+.trash

@@ -221,7 +221,7 @@ class SubgraphXTExplainer(Explainer):
         model_name = CONFIG.model.model_name.lower()
         params = CONFIG.tgnnExplainerConfig
         checkpoint_dir = Path("Saved_models") / CONFIG.data.dataset_name / "tgnnexplainer"
-        results_dir = Path("Logs/TGNNExplainer") / dataset
+        results_dir = Path("Slurm/TGNNExplainer") / dataset
         results_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 

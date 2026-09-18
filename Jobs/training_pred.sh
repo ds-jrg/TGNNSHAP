@@ -14,8 +14,7 @@ module load lib/libffi/3.3-GCCcore-10.3.0
 module load system/CUDA/12.4.1
 source .tgnnshap_venv/bin/activate
 
-options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
-options=( "WikipediaCAWN" )
+options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" "WikipediaCAWN" )
 
 echo "Running prediction for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 

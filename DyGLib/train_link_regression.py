@@ -102,10 +102,10 @@ def train(modelConfig: ModelConfig, dataConfig: DataConfig, trainConfig: TrainCo
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)
-        os.makedirs(f"Logs/{dataConfig.dataset_name}/{modelConfig.model_name}/", exist_ok=True)
+        os.makedirs(f"Slurm/{dataConfig.dataset_name}/{modelConfig.model_name}/", exist_ok=True)
 
         fh = logging.FileHandler(
-            f"Logs/{dataConfig.dataset_name}/{modelConfig.model_name}/{str(time.time())}.log"
+            f"Slurm/{dataConfig.dataset_name}/{modelConfig.model_name}/{str(time.time())}.log"
         )
         fh.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()

@@ -36,6 +36,25 @@ import os
 
 CONFIG = CONFIG()
 
+def to_object_array(arr: list) -> np.ndarray:
+    """
+    Convert a numpy array to an object array, preserving the original data.
+
+    Parameters
+    ----------
+    arr : list
+        Input array to convert.
+
+    Returns
+    -------
+    np.ndarray
+        Object array with the same data as the input.
+    """
+    results = np.empty(len(arr), dtype=object)
+    for i in range(len(arr)):
+        results[i] = arr[i]
+    return results
+
 
 class Explainer(ABC):
     """
@@ -189,9 +208,22 @@ class Explainer(ABC):
 
                 coalitions, sg_src, sg_dst = self.build_coalitions(explanation)
                 if(store_coalitions):
-                    file_path = f"Logs/Coalitions/{CONFIG.data.dataset_name}/{self.__class__.__name__}/"
+                    file_path = f"Results/Coalitions/{CONFIG.data.dataset_name}/{explainer_name}/"
                     os.makedirs(file_path, exist_ok=True)
-                    np.savez_compressed(f"{file_path}{src[i]}_to_{dst[i]}_{timestamp[i]}.npz", coalitions=coalitions)    
+                    if sg_src is not None and sg_dst is not None:
+                        sg_src_events = to_object_array(sg_src.events)
+                        sg_dst_events = to_object_array(sg_dst.events)
+                        sg_src_timestamps = to_object_array(sg_src.timestamps)
+                        sg_dst_timestamps = to_object_array(sg_dst.timestamps)
+                        sg_src_node_ids = to_object_array(sg_src.nodes)
+                        sg_dst_node_ids = to_object_array(sg_dst.nodes)
+                        
+                        np.savez_compressed(f"{file_path}{src[i]}_to_{dst[i]}_{timestamp[i]}.npz", coalitions=coalitions, 
+                                            sg_src_events=sg_src_events, sg_dst_events=sg_dst_events,
+                                            sg_src_timestamps=sg_src_timestamps, sg_dst_timestamps=sg_dst_timestamps,
+                                            sg_src_node_ids=sg_src_node_ids, sg_dst_node_ids=sg_dst_node_ids) 
+                    else:
+                        np.savez_compressed(f"{file_path}{src[i]}_to_{dst[i]}_{timestamp[i]}.npz", coalitions=coalitions)   
                 _, _, _, imputation_data = default_values_subgraph(
                     src[i], dst[i], timestamp[i], self.neighbor_finder, self.data,
                     mean_delta_timings, mean_values, sg_src=sg_src, sg_dst=sg_dst
