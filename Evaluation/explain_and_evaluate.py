@@ -126,7 +126,7 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
         from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerFeatures
         return ShapleyExplainerFeatures(
             model, full_sampler, full_data, edge_features, None,
-            shapley_alg="MonteCarlo", top_k=3,
+            shapley_alg="MonteCarlo", top_k=1,
         )
     if name in ("random_event", "random_feature"):
         from Explainers.RandomExplainer.Explainer import (
@@ -134,7 +134,7 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
             RandomFeatureExplainer,
         )
         if name == "random_feature":
-            return RandomFeatureExplainer(model, full_sampler, full_data, edge_features, top_k=3)
+            return RandomFeatureExplainer(model, full_sampler, full_data, edge_features, top_k=1)
         return RandomExplainer(model, full_sampler, full_data, edge_features)
     if name == "tgnn":
         from Explainers.External.tgnnexplainer.Explainer import SubgraphXTExplainer

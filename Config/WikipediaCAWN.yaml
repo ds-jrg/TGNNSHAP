@@ -23,7 +23,7 @@ ModelConfig:
   omit_normalization: False
 
 DataConfig:
-  dataset_name: WikipediaCAWN
+  dataset_name: wikipediaCAWN
   folder: Data/wikipedia
   edge_feat_file: /ml_wikipedia.npy
   node_feat_file: /ml_wikipedia_node.npy

@@ -8,6 +8,7 @@
 #SBATCH --mem-per-cpu=2G
 #SBATCH --gres=gpu:a100:1
 #SBATCH -J "Training_reg_%A_%a"
+#SBATCH -o "Slurm/Training_reg_%A_%a.out"
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
 

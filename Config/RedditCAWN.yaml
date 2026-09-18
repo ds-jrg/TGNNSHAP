@@ -1,43 +1,43 @@
 ModelConfig:
-  model_name: TGAT
-  device: "mps"
-  num_neighbors: 5
+  model_name: CAWN
+  device: "cuda:0"
+  num_neighbors: 20
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6
   num_walk_heads: 8
-  num_heads: 1
+  num_heads: 2
   num_layers: 2
-  num_reg_layers: 1
-  hidden_reg_layers_dim: 6
-  node_dim: 10
+  num_reg_layers: 2
+  hidden_reg_layers_dim: 172
+  node_dim: 172
   walk_length: 2
   time_gap: 100
-  time_feat_dim: 10
+  time_feat_dim: 100
   position_feat_dim: 16
   patch_size: 1
   channel_embedding_dim: 64
   max_input_sequence_length: 32
-  dropout: 0.0
-  task: regression
-  trained_model_path: Saved_models/Generated/TGAT/seed0/TGAT_seed0.pkl
-  omit_normalization: True
+  dropout: 0.1
+  task: classification
+  trained_model_path: Saved_models/reddit/CAWN/CAWN_seed0.pkl
+  omit_normalization: False
 
 DataConfig:
-  dataset_name: Generated
-  folder: Data/generated
-  edge_feat_file: /ml_generated.npy
-  node_feat_file: /ml_generated_node.npy
-  index_file: /ml_generated.csv
+  dataset_name: redditCAWN
+  folder: Data/reddit
+  edge_feat_file: /ml_reddit.npy
+  node_feat_file: /ml_reddit_node.npy
+  index_file: /ml_reddit.csv
   feature_names_file: ""
-  node_names_file: /generated_node_names.npy
+  node_names_file: ""
   is_directed: False
 
 TrainConfig:
-  num_epochs: 10000
-  batch_size: 2000
+  num_epochs: 100
+  batch_size: 200
   optimizer: Adam
-  weight_decay: 0.005
-  patience: 100
+  weight_decay: 0.0
+  patience: 15
   learning_rate: 0.0001
   val_ratio: 0.15
   test_ratio: 0.15
@@ -54,13 +54,13 @@ TempMEConfig:
   lr: 0.001
   drop_out: 0.1
   if_bern: true
-  weight_decay: 0.0001
+  weight_decay: 0
   beta: 0.5
   device: "cuda:0"
 
 TGNNExplainerConfig:
-  num_rollouts: 50
-  min_atoms: 1
+  num_rollouts: 500
+  min_atoms: 100
 Shapley:
   batch_size: 500
   max_num_samples: 550

@@ -8,8 +8,9 @@
 #SBATCH -J "TempME_preprocessing_%a"
 #SBATCH -p normal
 #SBATCH -A hpc-prf-wiki
-#SBATCH --array=5
-#SBATCH -o "TempME_preprocessing_%A_%a.out"
+#SBATCH --array=
+#SBATCH -J "TempME_preprocessing_%A_%a"
+#SBATCH -o "Slurm/TempME_preprocessing_%A_%a.out"
 
 module load lang/Python/3.11.5-GCCcore-13.2.0
 module load lib/libffi/3.4.4-GCCcore-13.2.0

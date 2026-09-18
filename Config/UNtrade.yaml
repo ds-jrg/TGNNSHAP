@@ -59,7 +59,7 @@ TempMEConfig:
   device: "cuda:0"
 
 TGNNExplainerConfig:
-  num_rollouts: 300
+  num_rollouts: 500
   min_atoms: 20
 Shapley:
   batch_size: 500

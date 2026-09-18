@@ -9,6 +9,7 @@
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-wiki
 #SBATCH -J "Feat_explainer_%A_%a"
+#SBATCH -o "Slurm/Feat_explainer_%A_%a.out"
 #SBATCH --array=0-6
 
 module load lang/Python/3.11.5-GCCcore-13.2.0

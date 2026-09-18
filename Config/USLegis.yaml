@@ -1,7 +1,7 @@
 ModelConfig:
   model_name: TGAT
   device: "cuda:0"
-  num_neighbors: 40
+  num_neighbors: 20
   sample_neighbor_strategy: recent
   time_scaling_factor: 1e-6
   num_walk_heads: 8
@@ -59,7 +59,7 @@ TempMEConfig:
   device: "cuda:0"
 
 TGNNExplainerConfig:
-  num_rollouts: 300
+  num_rollouts: 500
   min_atoms: 20
 Shapley:
   batch_size: 500
