@@ -63,7 +63,7 @@ TGNNExplainerConfig:
   min_atoms: 100
 Shapley:
   batch_size: 500
-  max_num_samples: 550
+  max_num_samples: 200
 
 QIEA:
   func: ob_half

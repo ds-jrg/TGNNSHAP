@@ -54,13 +54,13 @@ class TempMEExplainer(Explainer):
         self._row_by_edge = {}
 
     @staticmethod
-    def preprocess(data: Data, walk_finder, neg_edge_sampler: NegativeEdgeSampler):
+    def preprocess(data: Data, walk_finder, neighbor_sampler: NeighborSampler, neg_edge_sampler: NegativeEdgeSampler):
         """Materialize motif walks in memory using DyGLib event arrays."""
         from argparse import Namespace
         args = Namespace(
             n_degree=CONFIG.model.num_neighbors)
         
-        result = pre_processing(walk_finder, neg_edge_sampler, data.src_node_ids, data.dst_node_ids, data.node_interact_times, data.edge_ids)
+        result = pre_processing(walk_finder, neighbor_sampler, neg_edge_sampler, data.src_node_ids, data.dst_node_ids, data.node_interact_times, data.edge_ids)
         walks_src_new, walks_tgt_new, walks_bgd_new = marginal(result["walks_src"], result["walks_tgt"], result["walks_bgd"])
         result["walks_src_new"], result["walks_tgt_new"], result["walks_bgd_new"] = walks_src_new, walks_tgt_new, walks_bgd_new
         del result["walks_src"], result["walks_tgt"], result["walks_bgd"]
@@ -100,7 +100,7 @@ class TempMEExplainer(Explainer):
             )
 
     @staticmethod
-    def preprocess_data_if_missing(data: Data, subset_name: str = "test"):
+    def preprocess_data_if_missing(data: Data, neighbor_finder: NeighborSampler, subset_name: str = "test"):
         """Load cached preprocessing data or create and cache it if absent."""
         cached = TempMEExplainer._load_preprocessing_cache(subset_name)
         if cached is not None:
@@ -115,7 +115,7 @@ class TempMEExplainer(Explainer):
             data.node_interact_times,
         )
         pack_cat, edge, row_by_edge = TempMEExplainer.preprocess(
-            data, walk_finder, neg_edge_sampler
+            data, walk_finder, neighbor_finder, neg_edge_sampler
         )
         TempMEExplainer._save_preprocessing_cache(subset_name, pack_cat, edge, row_by_edge)
         print("Cached TempME preprocessing data.")
@@ -129,10 +129,9 @@ class TempMEExplainer(Explainer):
             print("Using cached TempME trained model.")
             return
 
-        train_pack_cat, train_edge, _ = TempMEExplainer.preprocess_data_if_missing(train_data, subset_name="train")
-        test_pack_cat, test_edge, _ = TempMEExplainer.preprocess_data_if_missing(full_data, subset_name="test")
-        
-        
+        train_pack_cat, train_edge, _ = TempMEExplainer.preprocess_data_if_missing(train_data, train_neighbor_finder, subset_name="train")
+        test_pack_cat, test_edge, _ = TempMEExplainer.preprocess_data_if_missing(full_data, full_neighbor_finder, subset_name="test")
+    
         from argparse import Namespace
         args = Namespace(
             base_type="tgat",

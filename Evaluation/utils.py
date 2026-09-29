@@ -34,7 +34,7 @@ def get_shapley_value_of_masked_sg(features,src, dst, timestamp, event_id, event
         sg_dst_pos.mask_node_attention(event_id, torch.tensor(0.0))
     features = features - 2
     features = features[features >= 0]
-    masked_features = event_features
+    masked_features = np.copy(event_features)
     masked_features[features] = 0.0
     sg_src_pos.mask_event_features(event_id, torch.tensor(masked_features))
     sg_dst_pos.mask_event_features(event_id, torch.tensor(masked_features))
@@ -74,8 +74,6 @@ def evaluate_file(file_name, directory, random_directory, neighbor_finder: Neigh
         assert np.array_equal(np.sort(feature_ids), np.sort(feature_ids_random)), \
             f"Feature IDs do not match for event {e_id} and random event {random_e_id}."
         
-        shapley_value = get_shapley_value(event_explainer, src, dst, timestamp, e_id)
-        
         subgraphs_src = neighbor_finder.get_multi_hop_neighbors(CONFIG.model.num_layers, np.array([src]), np.array([timestamp]), num_neighbors=CONFIG.model.num_neighbors)
         event_feat_src = neighbor_finder.get_edge_features_for_multi_hop(subgraphs_src[1])
         subgraphs_src = BatchSubgraphs(*subgraphs_src, event_feat_src)
@@ -84,20 +82,34 @@ def evaluate_file(file_name, directory, random_directory, neighbor_finder: Neigh
         event_feat_dst = neighbor_finder.get_edge_features_for_multi_hop(subgraphs_dst[1])
         subgraphs_dst = BatchSubgraphs(*subgraphs_dst, event_feat_dst)
         
-        event_features = neighbor_finder.edge_features[e_id].detach().cpu().numpy()
-        
+        shapley_value = get_shapley_value(event_explainer, src, dst, timestamp, e_id, sg_src=subgraphs_src, sg_dst=subgraphs_dst)
+        print(f"Ground truth Shapley value for event {e_id}: {shapley_value}")
+        event_features = None
+        for l in range(CONFIG.model.num_layers):
+            mask = subgraphs_src.events[l] == e_id  
+            if mask.any():
+                event_features = subgraphs_src.event_features[l][mask].detach().cpu().numpy()[0]
+                break    
+            mask = subgraphs_dst.events[l] == e_id
+            if mask.any():
+                event_features = subgraphs_dst.event_features[l][mask].detach().cpu().numpy()[0]
+                break
+        if event_features is None:
+            raise ValueError(f"Event features for event {e_id} not found in either source or destination subgraphs.")
         for s in tqdm(sparsity_thresholds):
             i = int(len(feature_ids) * s)
+            
+            #Features stores the indices that should be removed
             features = feature_ids[:i]
             features_random = feature_ids_random[:i]
             
             features_neg = feature_ids[i:]
             features_random_neg = feature_ids_random[i:]
             
-            shapley_pos = get_shapley_value_of_masked_sg(features, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
-            shapley_pos_random = get_shapley_value_of_masked_sg(features_random, src, dst, timestamp, random_e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
-            shapley_neg = get_shapley_value_of_masked_sg(features_neg, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
-            shapley_neg_random = get_shapley_value_of_masked_sg(features_random_neg, src, dst, timestamp, random_e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
+            shapley_pos = get_shapley_value_of_masked_sg(features_neg, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
+            shapley_pos_random = get_shapley_value_of_masked_sg(features_random_neg, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
+            shapley_neg = get_shapley_value_of_masked_sg(features, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
+            shapley_neg_random = get_shapley_value_of_masked_sg(features_random, src, dst, timestamp, e_id, event_features, event_explainer, subgraphs_src, subgraphs_dst)
             
             results.append({
                 "src": src, "dst": dst, "timestamp": timestamp,

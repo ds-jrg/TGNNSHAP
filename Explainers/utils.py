@@ -630,7 +630,7 @@ def compute_default_values(data: Data, event_features: np.ndarray, max_timing: O
 
 
 def default_values_subgraph(
-    src: int, dst: int, timestamp: int, neighbor_finder: NeighborSampler,
+    src: int, dst: int, timestamp: float, neighbor_finder: NeighborSampler,
     data: Data, mean_delta_timings: dict, mean_values: dict,
     sg_src: Optional[BatchSubgraphs] = None, sg_dst: Optional[BatchSubgraphs] = None
 ):
@@ -675,7 +675,7 @@ def default_values_subgraph(
     return subgraphs_src, subgraphs_dst, event_ids, imputation_data
 
 
-def calc_mean_timing(timestamp: int, subgraph: BatchSubgraphs, imputation_data: dict, mean_delta_timings: dict, data: Data):
+def calc_mean_timing(timestamp: float, subgraph: BatchSubgraphs, imputation_data: dict, mean_delta_timings: dict, data: Data):
     """
     Adjust imputed timestamps for events by subtracting the mean delta time for their type.
     """

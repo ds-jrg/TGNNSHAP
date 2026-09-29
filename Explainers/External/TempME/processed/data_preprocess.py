@@ -18,7 +18,8 @@ PROJECT_ROOT = osp.dirname(osp.dirname(osp.realpath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from utils import NeighborFinder, RandEdgeSampler
+from utils import RandEdgeSampler
+from DyGLib.utils.utils import NeighborSampler
 
 
 NUM_NEIGHBORS = CONFIG.model.num_neighbors
@@ -97,7 +98,7 @@ def statistic(out_anony):
 
 
 
-def pre_processing(ngh_finder, sampler, src, dst, ts, val_e_idx_l, MODE="test", data="reddit"):
+def pre_processing(walk_finder, ngh_finder, sampler, src, dst, ts, val_e_idx_l, MODE="test", data="reddit"):
     load_dict = {}
     save_dict = {}
     for item in ["subgraph_src_0", "subgraph_src_1", "subgraph_tgt_0", "subgraph_tgt_1",  "subgraph_bgd_0", "subgraph_bgd_1", "walks_src", "walks_tgt", "walks_bgd", "dst_fake"]:
@@ -112,24 +113,21 @@ def pre_processing(ngh_finder, sampler, src, dst, ts, val_e_idx_l, MODE="test", 
         size = len(src_l_cut)
         src_l_fake, dst_l_fake = sampler.sample(size)
         load_dict["dst_fake"].append(dst_l_fake)
-        subgraph_src = ngh_finder.find_k_hop(2, src_l_cut, ts_l_cut, NUM_NEIGHBORS,
-                             e_idx_l=e_l_cut)  #first: (batch, num_neighbors), second: [batch, num_neighbors * num_neighbors]
+        subgraph_src = ngh_finder.get_multi_hop_neighbors(2, src_l_cut, ts_l_cut, NUM_NEIGHBORS)  #first: (batch, num_neighbors), second: [batch, num_neighbors * num_neighbors]
         node_records, eidx_records, t_records = subgraph_src
         load_dict["subgraph_src_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_src_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        subgraph_tgt = ngh_finder.find_k_hop(2, dst_l_cut, ts_l_cut, NUM_NEIGHBORS,
-                             e_idx_l=e_l_cut)
+        subgraph_tgt = ngh_finder.get_multi_hop_neighbors(2, dst_l_cut, ts_l_cut, NUM_NEIGHBORS)
         node_records, eidx_records, t_records = subgraph_tgt
         load_dict["subgraph_tgt_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_tgt_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        subgraph_bgd = ngh_finder.find_k_hop(2, dst_l_fake, ts_l_cut, NUM_NEIGHBORS,
-                             e_idx_l=None)
+        subgraph_bgd = ngh_finder.get_multi_hop_neighbors(2, dst_l_fake, ts_l_cut, NUM_NEIGHBORS)
         node_records, eidx_records, t_records = subgraph_bgd
         load_dict["subgraph_bgd_0"].append(np.concatenate([node_records[0], eidx_records[0], t_records[0]], axis=-1))  #append([1, num_neighbors * 3]
         load_dict["subgraph_bgd_1"].append(np.concatenate([node_records[1], eidx_records[1], t_records[1]], axis=-1))    #append([1, num_neighbors**2 * 3]
-        walks_src = ngh_finder.find_k_walks(NUM_NEIGHBORS, src_l_cut, num_neighbors=3, subgraph_src=subgraph_src)
-        walks_tgt = ngh_finder.find_k_walks(NUM_NEIGHBORS, dst_l_cut, num_neighbors=3, subgraph_src=subgraph_tgt)
-        walks_bgd = ngh_finder.find_k_walks(NUM_NEIGHBORS, dst_l_fake, num_neighbors=3, subgraph_src=subgraph_bgd)
+        walks_src = walk_finder.find_k_walks(NUM_NEIGHBORS, src_l_cut, num_neighbors=3, subgraph_src=subgraph_src)
+        walks_tgt = walk_finder.find_k_walks(NUM_NEIGHBORS, dst_l_cut, num_neighbors=3, subgraph_src=subgraph_tgt)
+        walks_bgd = walk_finder.find_k_walks(NUM_NEIGHBORS, dst_l_fake, num_neighbors=3, subgraph_src=subgraph_bgd)
         node_records, eidx_records, t_records, out_anony = walks_src
         load_dict["walks_src"].append(np.concatenate([node_records, eidx_records, t_records, out_anony], axis=-1))  #append([1, num_walks, 6+3+3+3])
         node_records, eidx_records, t_records, out_anony = walks_tgt

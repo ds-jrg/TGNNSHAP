@@ -28,12 +28,18 @@ parser = ArgumentParser()
 parser.add_argument("-d", "--dataset", required=True, help="dataset name")
 parser.add_argument("--explainer", required=True, help="explainer to use")
 parser.add_argument(
+    "--output_dir", default="Results",
+    help="base directory for storing explanations and evaluation results",
+)
+parser.add_argument(
     "--action", "--mode", dest="action",
     choices=("create", "evaluate", "both"), default="both",
     help="create explanations, evaluate existing explanations, or do both",
 )
 parser.add_argument("--num_samples", type=int, default=200,
                     help="number of test interactions used when creating explanations")
+parser.add_argument("--use_default_events", action="store_true",
+                    help="replace removed events with computed default values instead of zeroing them")
 args = parser.parse_args()
 
 # CONFIG is a singleton. Initialise it before importing modules whose classes
@@ -46,7 +52,12 @@ from Evaluation.model import load_model_and_data
 from DyGLib.models.TGAT import TGAT
 from DyGLib.models.modules import MultiHeadAttention
 from DyGLib.models.modules import BatchSubgraphs
-from Explainers.utils import Explainer, to_object_array
+from Explainers.utils import (
+    Explainer,
+    compute_default_values,
+    default_values_subgraph,
+    to_object_array,
+)
 from Evaluation.utils import evaluate_feature_explanations
 
 
@@ -154,12 +165,12 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
             if not isinstance(layer, MultiHeadAttention):
                 raise AssertionError("TGAT layers must be MultiHeadAttention")
             layer.edge_attention_alter_mode = "multiply"
-        TempMEExplainer.preprocess_data_if_missing(train_data, subset_name="train")
+        TempMEExplainer.preprocess_data_if_missing(train_data, train_sampler, subset_name="train")
         TempMEExplainer.train_model_if_missing(
             model, train_sampler, full_sampler, full_random_sampler,
             train_data, full_data, CONFIG.model.device,
         )
-        TempMEExplainer.preprocess_data_if_missing(full_data, subset_name="test")
+        TempMEExplainer.preprocess_data_if_missing(full_data, full_sampler, subset_name="test")
         return TempMEExplainer(model, full_sampler, full_data)
     if name == "qiea":
         from Explainers.External.QIEATGX.Explainer import QIEATGXExplainer
@@ -195,10 +206,10 @@ def create_explanations(name: str, model, full_sampler, train_sampler, full_data
         full_random_sampler, edge_features,
     )
 
-    directory = os.path.join("Results", "Explanations", CONFIG.data.dataset_name,
+    directory = os.path.join(args.output_dir, "Explanations", CONFIG.data.dataset_name,
                              EXPLAINER_DIRECTORIES[name])
     timing_path = os.path.join(
-        "Results", "Evaluation", CONFIG.data.dataset_name,
+        args.output_dir, "Evaluation", CONFIG.data.dataset_name,
         f"{EXPLAINER_DIRECTORIES[name]}_explanation_timings.csv",
     )
     os.makedirs(os.path.dirname(timing_path), exist_ok=True)
@@ -222,10 +233,37 @@ def create_explanations(name: str, model, full_sampler, train_sampler, full_data
         tqdm(zip(srcs, dsts, timestamps, targets), total=len(srcs),
              desc=f"Creating {EXPLAINER_DIRECTORIES[name]} explanations")
     ):
+        explanation_path = os.path.join(
+            directory, f"{src}_to_{dst}_{timestamp}.npz"
+        )
+        if os.path.exists(explanation_path):
+            print(f"Skipping existing explanation: {explanation_path}")
+            continue
+
         start = time.time_ns()
-        explanation = explainer.explain_instance(src, dst, timestamp, silent=True)
-        explanations, sg_src, sg_dst = explainer.build_coalitions(explanation)
+        try:
+            explanation = explainer.explain_instance(src, dst, timestamp, silent=True)
+            explanations, sg_src, sg_dst = explainer.build_coalitions(explanation)
+        except Exception as exc:
+            print(
+                f"Skipping explanation for src={src}, dst={dst}, "
+                f"timestamp={timestamp}: {exc}"
+            )
+            continue
         elapsed = time.time_ns() - start
+
+        try:
+            write_explanation(
+                explanation_path,
+                explanations, sg_src, sg_dst,
+            )
+        except Exception as exc:
+            print(
+                f"Skipping explanation for src={src}, dst={dst}, "
+                f"timestamp={timestamp}: {exc}"
+            )
+            continue
+
         pd.DataFrame([{
             "Time(ns)": elapsed,
             "Time(s)": elapsed / 1_000_000_000,
@@ -235,10 +273,6 @@ def create_explanations(name: str, model, full_sampler, train_sampler, full_data
             "Dst": dst,
             "Timestamp": timestamp,
         }]).to_csv(timing_path, mode="a", header=False, index=False)
-        write_explanation(
-            os.path.join(directory, f"{src}_to_{dst}_{timestamp}.npz"),
-            explanations, sg_src, sg_dst,
-        )
 
     print(f"Saved explanations to {directory}")
     print(f"Saved explanation timings to {timing_path}")
@@ -297,7 +331,7 @@ def load_explanation(file_name, folder, model, sampler):
     )
     return src, dst, timestamp, explanations, sg_src, sg_dst, logits, predicts
 
-def prepare_subgraphs(sg_src:BatchSubgraphs, sg_dst:BatchSubgraphs, explanations):
+def prepare_subgraphs(sg_src: BatchSubgraphs, sg_dst: BatchSubgraphs, explanations, data_per_event: Optional[dict] = None):
     events = np.unique(np.concatenate([sg_src.get_events(), sg_dst.get_events()], axis=1))
     events = events[events != 0]
     if len(events) == 0:
@@ -315,18 +349,20 @@ def prepare_subgraphs(sg_src:BatchSubgraphs, sg_dst:BatchSubgraphs, explanations
             pos[i, :-1] = explanation
             neg[i, np.isin(events, explanation)] = 0
     neg = np.concatenate([neg, np.zeros((len(SPARSITY_THRESHOLDS), 1), dtype=int)], axis=1)
-    sg_src.keep_events(pos)
-    sg_dst.keep_events(pos)
-    sg_src_neg.keep_events(neg)
-    sg_dst_neg.keep_events(neg)
+    sg_src.keep_events(pos, data_per_event=data_per_event)
+    sg_dst.keep_events(pos, data_per_event=data_per_event)
+    sg_src_neg.keep_events(neg, data_per_event=data_per_event)
+    sg_dst_neg.keep_events(neg, data_per_event=data_per_event)
     return sg_src, sg_dst, sg_src_neg, sg_dst_neg
 
 
-def evaluate_file(file_name, folder, model, sampler):
+def evaluate_file(file_name, folder, model, sampler, data, mean_delta_timings=None, mean_values=None):
     src, dst, timestamp, explanations, sg_src, sg_dst, complete_logit, complete_predict = load_explanation(
         file_name, folder, model, sampler)
-    sg_src_pos, sg_dst_pos, sg_src_neg, sg_dst_neg = prepare_subgraphs(
-        sg_src, sg_dst, explanations)
+    data_per_event = None
+    if mean_delta_timings is not None and mean_values is not None:
+        sg_src, sg_dst, _, data_per_event = default_values_subgraph(src, dst, timestamp, sampler, data, mean_delta_timings, mean_values, sg_src=sg_src, sg_dst=sg_dst)
+    sg_src_pos, sg_dst_pos, sg_src_neg, sg_dst_neg = prepare_subgraphs(sg_src, sg_dst, explanations, data_per_event)
     values = np.full(len(SPARSITY_THRESHOLDS), timestamp)
     src_values = np.full(len(SPARSITY_THRESHOLDS), src)
     dst_values = np.full(len(SPARSITY_THRESHOLDS), dst)
@@ -354,17 +390,28 @@ def evaluate_file(file_name, folder, model, sampler):
     })
 
 
-def evaluate_explanations(name: str, model, sampler) -> None:
-    directory = os.path.join("Results", "Explanations", CONFIG.data.dataset_name,
+def evaluate_explanations(name: str, model, sampler, data, edge_features) -> None:
+    directory = os.path.join(args.output_dir, "Explanations", CONFIG.data.dataset_name,
                              EXPLAINER_DIRECTORIES[name])
     if not os.path.isdir(directory):
         raise FileNotFoundError(f"Explanation directory not found: {directory}")
     files = sorted(file for file in os.listdir(directory) if file.endswith(".npz"))
     if not files:
         raise FileNotFoundError(f"No explanation files found in {directory}")
-    frames = [evaluate_file(file, directory, model, sampler)
-              for file in tqdm(files, desc="Evaluating explanation files", unit="file")]
-    output = os.path.join("Results", "Evaluation", CONFIG.data.dataset_name,
+    mean_values = mean_delta_timings = None
+    if args.use_default_events:
+        mean_values, mean_delta_timings = compute_default_values(data, edge_features)
+    frames = []
+    for file in tqdm(files, desc="Evaluating explanation files", unit="file"):
+        try:
+            frames.append(evaluate_file(file, directory, model, sampler, data, mean_delta_timings, mean_values))
+        except Exception as exc:
+            print(f"Skipping evaluation for {file}: {exc}")
+    if not frames:
+        print(f"No explanations could be evaluated in {directory}")
+        return
+
+    output = os.path.join(args.output_dir, "Evaluation", CONFIG.data.dataset_name,
                           f"{EXPLAINER_DIRECTORIES[name]}_explanation_evaluation.csv")
     os.makedirs(os.path.dirname(output), exist_ok=True)
     pd.concat(frames, ignore_index=True).to_csv(output, index=False)
@@ -385,9 +432,13 @@ def main() -> None:
         if name == "random_feature":
             raise ValueError("Random feature explainer is only evaluated with the feature explainer.")
         if name == "shapley_feature":
-            evaluate_feature_explanations(model, full_sampler, full_data, edge_features, SPARSITY_THRESHOLDS)
+            # Use fewer sparsity thresholds for feature explanations to reduce evaluation time
+            sparsity_thresholds = np.linspace(0, 1, 25) - 0.5
+            sparsity_thresholds = 0.5 * (1 + np.tanh(7 * (sparsity_thresholds - 0.5)))
+            sparsity_thresholds = np.concatenate(([0.0], sparsity_thresholds, [1.0]))
+            evaluate_feature_explanations(model, full_sampler, full_data, edge_features, sparsity_thresholds)
         else:
-            evaluate_explanations(name, model, full_sampler)
+            evaluate_explanations(name, model, full_sampler, full_data, edge_features)
 
 
 if __name__ == "__main__":
