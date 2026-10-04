@@ -1144,6 +1144,7 @@ class BatchSubgraphs:
                 self.event_features[i][m, :] = event_features
                 self.node_attention[i][m] = node_attention
                 self.timestamps[i][m] = timing
+                self.timing_attention[i][m] = 1.0
 
     def replace_event_2D(self, masks: list, node_attention: torch.Tensor, timing: np.ndarray, event_features: torch.Tensor):
         """

@@ -166,7 +166,7 @@ class ShapleyExplainerEvents(Explainer):
             explainer = shap.explainers.KernelExplainer(
                 val, data=np.zeros((1, len(event_ids))), feature_names=labels
             )
-            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent,  l1_reg=False) # type: ignore
+            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent, l1_reg=False) # type: ignore
         elif self.algorithm == "Exact":
             explainer = shap.explainers.ExactExplainer(val, masker=np.zeros((1, len(event_ids))), feature_names=labels)
             shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent)
@@ -397,7 +397,7 @@ class ShapleyExplainerFeatures(Explainer):
         event_explainer.mean_delta_timings = self.mean_delta_timings
         event_explainer.mean_values = self.mean_values
         e_ids, shapley_values = event_explainer.explain_instance(
-            src, dst, timestamp, silent=True
+            src, dst, timestamp, silent=True, subgraphs_src=subgraphs_src, subgraphs_dst=subgraphs_dst
         )
         baseline = shapley_values.base_values[0]
         torch.cuda.empty_cache()
