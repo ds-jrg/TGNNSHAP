@@ -606,11 +606,11 @@ def compute_default_values(data: Data, event_features: np.ndarray, max_timing: O
     mean_delta_timings = {}
     mean_values = {}
     if data.dataset is not None:
-        d = data.dataset[["i", "ts", "type"]].copy()
+        d = data.dataset[["u", "i", "ts", "type"]].copy()
         if label_for_prediction is not None:
-            d_base = d[["i", "ts"]][d.type == label_for_prediction].sort_values(by="ts")
+            d_base = d[["u", "ts"]][d.type == label_for_prediction].sort_values(by="ts")
         else:
-            d_base = d[["i", "ts"]].sort_values(by="ts")
+            d_base = d[["u", "ts"]].sort_values(by="ts")
             
         if max_timing is not None:
             d = d[d.ts <= max_timing]
@@ -618,7 +618,9 @@ def compute_default_values(data: Data, event_features: np.ndarray, max_timing: O
 
         for l, _ in d.type.value_counts().items():
             d_l = d[["i", "ts"]][d.type == l].sort_values(by="ts").rename(columns={'ts': f'ts_{l}'})
-            d_base = pd.merge_asof(d_base, d_l, by="i", left_on="ts", right_on=f'ts_{l}', allow_exact_matches=False)
+            #d_base = pd.merge_asof(d_base, d_l, left_by="u", right_by="i", left_on="ts", right_on=f'ts_{l}', allow_exact_matches=False)
+            d_base = pd.merge(d_base, d_l, how="inner", left_on="u", right_on="i") # One hop-neighborhood
+            d_base = d_base[d_base[f'ts_{l}'] < d_base['ts']] # Restrict on time
             d_base[l] = d_base.ts - d_base.loc[:, f'ts_{l}']
             if data.edge_ids[0] != 0:
                 mean_values[l] = np.mean(event_features[1:][data.types == l], axis=0)
