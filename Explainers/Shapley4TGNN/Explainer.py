@@ -857,7 +857,7 @@ class ShapleyExplainerFeatures(Explainer):
             max_num_samples = CONFIG.shapley.max_num_samples
 
         def val_features(feature_mask: np.ndarray):
-            k = min(len(event_ids) * 5, max_num_samples)
+            k = max_num_samples
             event_permutations = np.tile(event_ids, (k, 1))
             event_permutations = np.apply_along_axis(np.random.permutation, axis=1, arr=event_permutations)
             pos_event = np.where(event_permutations == event_id)[1]

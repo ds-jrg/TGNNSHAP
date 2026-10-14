@@ -4,10 +4,10 @@
 #SBATCH -t 6:00:00
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH --mem=64G
+#SBATCH --mem=32G
 #SBATCH --gres=gpu:a100:1
 #SBATCH -p gpu
-#SBATCH -A hpc-prf-wiki
+#SBATCH -A hpc-prf-dedsm
 #SBATCH -J "Feat_explainer_%A_%a"
 #SBATCH -o "Slurm/Feat_explainer_%A_%a.out"
 #SBATCH --array=0-6
@@ -23,5 +23,3 @@ options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 echo "Running for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
 python -m Evaluation.misc_tests.approximation_quality --dataset ${options[$SLURM_ARRAY_TASK_ID]} 
-
-python -m Evaluation.misc_tests.high_quality --dataset ${options[$SLURM_ARRAY_TASK_ID]} 
