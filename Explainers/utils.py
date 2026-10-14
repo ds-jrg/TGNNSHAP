@@ -607,10 +607,14 @@ def compute_default_values(data: Data, event_features: np.ndarray, max_timing: O
     mean_values = {}
     if data.dataset is not None:
         d = data.dataset[["u", "i", "ts", "type"]].copy()
+        if not CONFIG.data.is_directed:
+            d = pd.concat([d, d.rename(columns={"u": "i", "i": "u"})], axis=0)
         if label_for_prediction is not None:
             d_base = d[["u", "ts"]][d.type == label_for_prediction].sort_values(by="ts")
         else:
             d_base = d[["u", "ts"]].sort_values(by="ts")
+            
+        d_base = d_base.sample(10000)
             
         if max_timing is not None:
             d = d[d.ts <= max_timing]

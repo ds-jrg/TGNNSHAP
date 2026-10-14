@@ -28,7 +28,8 @@ edge_raw_features = full_neighbor_sampler.edge_features.detach().cpu().numpy()
 explainer_feature = ShapleyExplainerFeatures(model, full_neighbor_sampler, full_data, edge_raw_features, top_k=3, shapley_alg="MonteCarlo", feature_names=True)
 explainer_feature.initialize()
 
-num_samples = 2
+num_samples = 20
+np.random.seed(42)
 
 sampled_idx = np.random.choice(range(len(full_data.edge_ids)), size=num_samples, replace=False)
 sampled_idx = sampled_idx[sampled_idx != 0] 
@@ -39,11 +40,15 @@ for e_id in tqdm(sampled_idx, desc="Computing feature explanations"):
     timestamp = float(full_data.node_interact_times[e_id])
     explanation_flatten, remaining_ids, remaining_shapley_values, baseline = explainer_feature.explain_instance(src, dst, timestamp, silent=False)
     explanation_flatten = np.array(explanation_flatten)
+    not_timing_or_structure = (explanation_flatten[:, -3] != "Structure") & (explanation_flatten[:, -3] != "Timing")
+    explanation_flatten[not_timing_or_structure, -3] = "Feat. " + explanation_flatten[not_timing_or_structure, -3] 
     print(explanation_flatten[:,-2])
     explanation_flatten[:,-2] = np.round(explanation_flatten[:,-2].astype(float), 2)
     fig = waterfall(explanation_flatten, baseline, 4, 
                 src=str(src), dst=str(dst), ts=str(timestamp), target=str(1), 
                 remaining_ids=remaining_ids,remaining_shapley_values=remaining_shapley_values)
-    fig.savefig(f"Documents/Images/{args.dataset}/Waterfall_feat_{src}_{dst}_{timestamp}.pdf", bbox_inches='tight')
-    plt.show() 
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["pdf.fonttype"] = 42
+    fig.savefig(f"Documents/Images/{args.dataset}/Waterfall_feat_{src}_{dst}_{timestamp}.pdf", bbox_inches="tight")
+    print(f"Documents/Images/{args.dataset}/Waterfall_feat_{src}_{dst}_{timestamp}.pdf")
 

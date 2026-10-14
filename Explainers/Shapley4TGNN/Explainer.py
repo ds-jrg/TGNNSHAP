@@ -166,7 +166,7 @@ class ShapleyExplainerEvents(Explainer):
             explainer = shap.explainers.KernelExplainer(
                 val, data=np.zeros((1, len(event_ids))), feature_names=labels
             )
-            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent, l1_reg=False) # type: ignore
+            shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent, l1_reg=False, nsamples=4400) # type: ignore
         elif self.algorithm == "Exact":
             explainer = shap.explainers.ExactExplainer(val, masker=np.zeros((1, len(event_ids))), feature_names=labels)
             shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent)

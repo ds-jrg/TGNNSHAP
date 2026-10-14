@@ -64,10 +64,11 @@ def _prepare_dataset(explanation_flatten: list, k: int, base_date:Optional[date]
 
     # Remove zero contributions
     df = df[df.Shap_value != 0]
+    df["Shap_value"] = df["Shap_value"].astype(float)
 
     # Convert edge to category and store absolute Shapley value
     df.Edge = df.Edge.astype("category")
-    df["Shap_value_abs"] = df["Shap_value"].abs()
+    df["Shap_value_abs"] = df["Shap_value"].astype(float).abs()
 
     # Sum Shapley values by edge to compute total contribution
     df_sum = df.groupby("Edge", observed=False).sum()
@@ -116,7 +117,7 @@ def _prepare_dataset(explanation_flatten: list, k: int, base_date:Optional[date]
     # Special labels for 'Sum' and 'Others'
     df_top_k_per_edge.loc[df_top_k_per_edge.IsSum, "Label_feat"] = \
         df_top_k_per_edge[df_top_k_per_edge.IsSum].apply(
-            lambda x: f"{x.Src} to {x.Dst} @ {int(x.Timing) if base_date is None else base_date + timedelta(days=x.Timing)}", axis=1
+            lambda x: f"{x.Src} to {x.Dst} @ {float(x.Timing) if base_date is None else base_date + timedelta(days=x.Timing)}", axis=1
         )
     df_top_k_per_edge.loc[df_top_k_per_edge.IsOthers, "Label_feat"] = "Others"
 
