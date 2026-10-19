@@ -12,14 +12,15 @@ digraph G {
     //     >
     // ];
     margin=0
-    node[label="", shape=circle]
+    node[label="", shape=circle, fontsize=18]
+    edge[fontsize=18]
 
     A [fillcolor=lightblue, style=filled, label="A"];
     B [fillcolor=lightblue, style=filled, label="B"];
-    C [fillcolor=lightblue, style=filled, label="C"];
+    C [fillcolor=lightblue, style=filled, label=<u<SUP><FONT POINT-SIZE="12">0</FONT></SUP>>, fixedsize=true, width=0.55, height=0.5];
 
     A1 [label = ""];
-    A21 [label = "", color=lightgrey];
+    A21 [label = "", color="#999999"];
 
     A -> B [label=<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
@@ -51,7 +52,7 @@ digraph G {
     C -> A [label=<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
             <TR>
-                <TD><FONT COLOR="#999999"><B>t = 4</B></FONT></TD>
+                <TD><FONT COLOR="#999999"><B>t = 3</B></FONT></TD>
             </TR>
             <TR>
                 <TD>
@@ -69,10 +70,10 @@ digraph G {
         </TABLE>
         >]
 
-    A21 -> C [color=lightgrey, label=<
+    A21 -> C [color="#999999", label=<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
             <TR>
-                <TD><FONT COLOR="lightgrey"><B>t = 1</B></FONT></TD>
+                <TD><FONT COLOR="#999999"><B>t = 1</B></FONT></TD>
             </TR>
             <TR>
                 <TD>

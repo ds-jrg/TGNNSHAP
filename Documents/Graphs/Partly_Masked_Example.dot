@@ -12,7 +12,8 @@ digraph G {
     //     >
     // ];
     margin=0
-    node[label="", shape=circle]
+    node[label="", shape=circle, fontsize=18]
+    edge[fontsize=18]
 
     A [fillcolor=lightblue, style=filled, label="A"];
     B [fillcolor=lightblue, style=filled, label="B"];
@@ -51,7 +52,7 @@ digraph G {
     C -> A [label=<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
             <TR>
-                <TD><FONT COLOR="#999999"><B>t = 4</B></FONT></TD>
+                <TD><FONT COLOR="#999999"><B>t = 3</B></FONT></TD>
             </TR>
             <TR>
                 <TD>

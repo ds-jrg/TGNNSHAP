@@ -12,7 +12,8 @@ digraph G {
     //     >
     // ];
     margin=0
-    node[label="", shape=circle]
+    node[label="", shape=circle, fontsize=18]
+    edge[fontsize=18]
 
     A [fillcolor=lightblue, style=filled, label="A"];
     B [fillcolor=lightblue, style=filled, label="B"];
