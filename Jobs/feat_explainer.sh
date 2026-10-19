@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --mail-type END,FAIL
 #SBATCH --mail-user sussekl@mail.uni-paderborn.de
-#SBATCH -t 6:00:00
+#SBATCH -t 24:00:00
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:a100:1
 #SBATCH -p gpu
 #SBATCH -A hpc-prf-dedsm
