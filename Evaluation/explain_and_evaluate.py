@@ -8,21 +8,21 @@ The pipeline is controlled by ``--action``:
 
 Model construction and data loading are delegated to ``Evaluation.model``.
 """
-
-from __future__ import annotations
-
+print("Here1")
+print("Here2")
 from argparse import ArgumentParser
 import copy
 import os
 import random
 import time
+import traceback
 from typing import Optional
-
+print("Here3")
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
-
+print("Here4")
 
 parser = ArgumentParser()
 parser.add_argument("-d", "--dataset", required=True, help="dataset name")
@@ -129,14 +129,14 @@ def make_explainer(name: str, model, full_sampler, train_sampler, full_data,
                    train_data, full_random_sampler, edge_features) -> Explainer:
     if name == "shapley_event":
         from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerEvents
-        return ShapleyExplainerEvents(model, full_sampler, full_data, edge_features)
+        return ShapleyExplainerEvents(model, full_sampler, full_data, train_data, edge_features)
     if name == "shapley_event_positive":
         from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerEventsPositive
-        return ShapleyExplainerEventsPositive(model, full_sampler, full_data, edge_features)
+        return ShapleyExplainerEventsPositive(model, full_sampler, full_data, train_data, edge_features)
     if name == "shapley_feature":
         from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerFeatures
         return ShapleyExplainerFeatures(
-            model, full_sampler, full_data, edge_features, None,
+            model, full_sampler, full_data, train_data, edge_features, None,
             shapley_alg="MonteCarlo", top_k=1,
         )
     if name in ("random_event", "random_feature"):
@@ -249,6 +249,7 @@ def create_explanations(name: str, model, full_sampler, train_sampler, full_data
                 f"Skipping explanation for src={src}, dst={dst}, "
                 f"timestamp={timestamp}: {exc}"
             )
+            traceback.print_exc()
             continue
         elapsed = time.time_ns() - start
 
@@ -262,6 +263,7 @@ def create_explanations(name: str, model, full_sampler, train_sampler, full_data
                 f"Skipping explanation for src={src}, dst={dst}, "
                 f"timestamp={timestamp}: {exc}"
             )
+            traceback.print_exc()
             continue
 
         pd.DataFrame([{

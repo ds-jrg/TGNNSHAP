@@ -79,7 +79,7 @@ class ShapleyExplainerEvents(Explainer):
         Matrix of event-level features.
     """
 
-    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data, 
+    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data, train_data: Data,
                  event_features: np.ndarray, node_names: Optional[np.ndarray] = None, 
                  algorithm: str = "KernelSHAP", recompute_mean_on_prevoius_events: bool = False,
                  label_for_prediction: Optional[str] = None):
@@ -89,6 +89,7 @@ class ShapleyExplainerEvents(Explainer):
         self.algorithm = algorithm
         self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
         self.label_for_prediction = label_for_prediction
+        self.train_data = train_data
 
     def initialize(self):
         """
@@ -97,7 +98,7 @@ class ShapleyExplainerEvents(Explainer):
         """
         if (not self.recompute_mean_on_prevoius_events):
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.data, self.event_features, label_for_prediction=self.label_for_prediction
+                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction
             )
 
     def _explain_instance(self, src: int, dst: int, timestamp: float, subgraphs_src: BatchSubgraphs, subgraphs_dst: BatchSubgraphs, event_ids: np.ndarray, imputation_data: dict, silent: bool = False):
@@ -200,7 +201,7 @@ class ShapleyExplainerEvents(Explainer):
         """
         if self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
+                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction, max_timing=timestamp
             )
         
         # Get local temporal subgraphs and imputation defaults
@@ -297,7 +298,7 @@ class ShapleyExplainerFeatures(Explainer):
         explanation are expanded to feature-level analysis.
     """
 
-    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data,
+    def __init__(self, model: TGNN, neighbor_finder: NeighborSampler, data: Data, train_data: Data,
                  event_features: np.ndarray, feature_names: Optional[Union[np.ndarray, bool]] = None,
                  shapley_alg="KernelSHAP", top_k: Optional[int] = None, recompute_mean_on_prevoius_events: bool = False, 
                  label_for_prediction: Optional[str] = None,
@@ -311,12 +312,13 @@ class ShapleyExplainerFeatures(Explainer):
         self.top_k = top_k
         self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
         self.label_for_prediction = label_for_prediction
+        self.train_data = train_data
 
     def initialize(self):
         """Compute default values for imputing masked features."""
         if not self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.data, self.event_features, label_for_prediction=self.label_for_prediction
+                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction
             )
 
     def build_coalitions(self, explanation):
@@ -379,7 +381,7 @@ class ShapleyExplainerFeatures(Explainer):
         """
         if self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
+                self.train_data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
             )
         if max_num_samples is None:
             max_num_samples = CONFIG.shapley.max_num_samples
@@ -392,7 +394,7 @@ class ShapleyExplainerFeatures(Explainer):
 
         # First run event-level explainer to get important events
         event_explainer = ShapleyExplainerEvents(
-            self.model, self.neighbor_finder, self.data, self.event_features
+            self.model, self.neighbor_finder, self.data, self.train_data, self.event_features
         )
         event_explainer.mean_delta_timings = self.mean_delta_timings
         event_explainer.mean_values = self.mean_values
@@ -790,7 +792,7 @@ class ShapleyExplainerFeatures(Explainer):
     ):
         event_ids = np.concat([subgraphs_src.get_events(), subgraphs_dst.get_events()]).reshape((-1,))
         event_ids = np.unique(event_ids[event_ids != 0])
-        event_explainer = ShapleyExplainerEvents(self.model, self.neighbor_finder, self.data, self.event_features, algorithm="Exact") 
+        event_explainer = ShapleyExplainerEvents(self.model, self.neighbor_finder, self.data, self.train_data, self.event_features, algorithm="Exact") 
 
         def val_features(feature_mask: np.ndarray):
             default_time_stamps = feature_mask[:, 1]
