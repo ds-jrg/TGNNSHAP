@@ -1,0 +1,37 @@
+
+Bootstrap: docker
+From: python:3.11-slim
+
+%files
+    requirements.txt /opt/project/requirements.txt
+
+%post
+    python -m pip install --no-cache-dir --upgrade pip
+
+    # Project dependencies
+    python -m pip install --no-cache-dir \
+        -r /opt/project/requirements.txt
+
+    # PyTorch with CUDA 12.4 support
+    python -m pip install --no-cache-dir \
+        torch==2.6.0 \
+        torchvision==0.21.0 \
+        torchaudio==2.6.0 \
+        --index-url https://download.pytorch.org/whl/cu124
+
+    # PyTorch Geometric compiled extensions
+    python -m pip install --no-cache-dir \
+        pyg_lib torch_scatter torch_sparse \
+        torch_cluster torch_spline_conv \
+        -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
+
+    
+
+    # Check dependency consistency
+    python -m pip check
+
+%environment
+    export PYTHONUNBUFFERED=1
+
+%runscript
+    exec python "$@"

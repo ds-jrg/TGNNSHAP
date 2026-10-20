@@ -19,6 +19,7 @@ import torch
 from typing import Optional, Union
 import copy
 import shap
+import pandas as pd
 from tqdm import tqdm
 import time
 
@@ -26,6 +27,44 @@ CONFIG = CONFIG()
 
 import subprocess as sp
 import os
+
+
+class KernelExplainerWithNsamples(shap.explainers.KernelExplainer):
+    """KernelExplainer variant that accepts ``nsamples`` in ``__call__``."""
+
+    def __call__(
+        self,
+        X,
+        l1_reg: Union[str, bool] = "num_features(10)",
+        silent=False,
+        nsamples="auto",
+    ):
+        """Explain ``X`` while forwarding ``nsamples`` to ``shap_values``."""
+        if isinstance(X, pd.DataFrame):
+            feature_names = list(X.columns)
+        else:
+            feature_names = getattr(self, "data_feature_names", None)
+
+        v = self.shap_values(
+            X,
+            l1_reg=l1_reg,
+            silent=silent,
+            nsamples=nsamples,
+        )
+        if isinstance(v, list):
+            v = np.stack(v, axis=-1)
+
+        if hasattr(self.expected_value, "__len__"):
+            ev_tiled = np.tile(self.expected_value, (v.shape[0], 1))
+        else:
+            ev_tiled = np.tile(self.expected_value, v.shape[0])
+
+        return shap.Explanation(
+            v,
+            base_values=ev_tiled,
+            data=X.to_numpy() if isinstance(X, pd.DataFrame) else X,
+            feature_names=feature_names,
+        )
 
 def get_gpu_memory():
     command = "nvidia-smi --query-gpu=memory.free --format=csv"
@@ -167,7 +206,7 @@ class ShapleyExplainerEvents(Explainer):
 
         # Instantiate SHAP on binary event-inclusion mask
         if self.algorithm == "KernelSHAP":
-            explainer = shap.explainers.KernelExplainer(
+            explainer = KernelExplainerWithNsamples(
                 val, data=np.zeros((1, len(event_ids))), feature_names=labels
             )
             shap_values = explainer(np.array([event_ids]).reshape(1, -1), silent=silent, l1_reg=False, nsamples=4400) # type: ignore
@@ -661,7 +700,7 @@ class ShapleyExplainerFeatures(Explainer):
         event_features = self.neighbor_finder.get_edge_features(np.array([event_id])).detach().numpy().flatten()
         labels = self._get_labels(event_features.shape[0])
 
-        explainer = shap.explainers.KernelExplainer(
+        explainer = KernelExplainerWithNsamples(
             val_features,
             data=imputation_data[event_id].cpu().numpy().reshape(1, -1),
             feature_names=labels
@@ -891,7 +930,7 @@ class ShapleyExplainerFeatures(Explainer):
 
         event_features = self.neighbor_finder.get_edge_features(np.array([event_id])).detach().numpy().flatten()
         labels = self._get_labels(event_features.shape[0])
-        explainer = shap.explainers.KernelExplainer(
+        explainer = KernelExplainerWithNsamples(
             val_features, data=imputation_data[event_id].cpu().numpy().reshape(1, -1), feature_names=labels
         )
         if CONFIG.model.task == "classification": 

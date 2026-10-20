@@ -96,6 +96,8 @@ def evaluate_file(file_name, directory, random_directory, neighbor_finder: Neigh
                 break
         if event_features is None:
             raise ValueError(f"Event features for event {e_id} not found in either source or destination subgraphs.")
+        if len(sparsity_thresholds) > len(feature_ids):
+            sparsity_thresholds = np.arange(len(feature_ids)+1)/len(feature_ids)
         for s in tqdm(sparsity_thresholds):
             i = int(len(feature_ids) * s)
             

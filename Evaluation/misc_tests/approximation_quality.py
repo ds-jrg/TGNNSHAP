@@ -31,7 +31,7 @@ from Explainers.Shapley4TGNN.Explainer import ShapleyExplainerFeatures
 
 # Use the shared model/data construction so this experiment stays in sync with
 # the main evaluation pipeline.
-model, full_data, _train_data, _val_data, _test_data, full_neighbor_sampler, _train_sampler, _random_sampler = load_model_and_data()
+model, full_data, train_data, _val_data, _test_data, full_neighbor_sampler, _train_sampler, _random_sampler = load_model_and_data()
 edge_raw_features = full_neighbor_sampler.edge_features.detach().cpu().numpy()
 
 
@@ -69,7 +69,7 @@ events_to_explain = np.random.choice(events_to_explain, size=n_events, replace=F
 
 results = []
 
-approx_explainer = ShapleyExplainerFeatures(model, full_neighbor_sampler, full_data, edge_raw_features, feature_names=True, shapley_alg="MonteCarlo")
+approx_explainer = ShapleyExplainerFeatures(model, full_neighbor_sampler, full_data, train_data, edge_raw_features, feature_names=True, shapley_alg="MonteCarlo")
 approx_explainer.initialize()
 
 for e_id in tqdm(events_to_explain, desc="Explaining events"):

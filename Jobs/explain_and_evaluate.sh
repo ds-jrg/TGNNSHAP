@@ -1,26 +1,23 @@
 #!/bin/bash
 #SBATCH --mail-type END,FAIL
 #SBATCH --mail-user sussekl@mail.uni-paderborn.de
-#SBATCH -t 24:00:00
+#SBATCH -t 6:00:00
 #SBATCH -N 1
-#SBATCH -n 8
+#SBATCH -n 1
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:a100:1
 #SBATCH -p gpu
-#SBATCH -A hpc-prf-dedsm
-#SBATCH -J "Explain_and_evaluate_shapley_event_%A_%a"
-#SBATCH -o "Slurm/Explain_and_evaluate_shapley_event_%A_%a.out"
-#SBATCH --array=0-8
+#SBATCH -A hpc-prf-moaacs
+#SBATCH -J "Explain_and_evaluate_shapley_feature_%A_%a"
+#SBATCH -o "Slurm/%A_%a_Explain_and_evaluate_shapley_feature.out"
+#SBATCH --array=4
 
-module load lang/Python/3.11.5-GCCcore-13.2.0
-module load lib/libffi/3.4.4-GCCcore-13.2.0
-module load lang/Tkinter/3.11.5-GCCcore-13.2.0
 module load system/CUDA/12.4.1
-source .tgnn_shap_venv/bin/activate
+module load tools/Apptainer/1.1.9-GCCcore-11.3.0
 
 datasets=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" "WikipediaCAWN" "RedditCAWN" )
 explainers=( "shapley_event" "shapley_feature" "tgnn" "tempme" "qiea" "random_event" "random_feature" )
-explainers=( "shapley_event" )
+explainers=( "shapley_feature" )
 
 forbidden_combinations=( 
     "tempme:WikipediaCAWN" "tempme:Flights" 
@@ -40,4 +37,4 @@ fi
 
 echo "Running evaluation for dataset: ${dataset} with explainer: ${explainer}"
 
-python -u -m Evaluation.explain_and_evaluate --output_dir ./Results --action both --num_samples 200 --dataset ${dataset} --explainer ${explainer}
+apptainer exec --nv --contain --cleanenv --bind "$PWD:$PWD" --pwd "$PWD" pytorch26-cu124.sif python -u -m Evaluation.explain_and_evaluate --output_dir ./Results --action both --num_samples 200 --dataset ${dataset} --explainer ${explainer}
