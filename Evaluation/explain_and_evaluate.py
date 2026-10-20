@@ -8,8 +8,6 @@ The pipeline is controlled by ``--action``:
 
 Model construction and data loading are delegated to ``Evaluation.model``.
 """
-print("Here1")
-print("Here2")
 from argparse import ArgumentParser
 import copy
 import os
@@ -17,12 +15,10 @@ import random
 import time
 import traceback
 from typing import Optional
-print("Here3")
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
-print("Here4")
 
 parser = ArgumentParser()
 parser.add_argument("-d", "--dataset", required=True, help="dataset name")
@@ -438,7 +434,7 @@ def main() -> None:
             sparsity_thresholds = np.linspace(0, 1, 25) - 0.5
             sparsity_thresholds = 0.5 * (1 + np.tanh(7 * (sparsity_thresholds - 0.5)))
             sparsity_thresholds = np.concatenate(([0.0], sparsity_thresholds, [1.0]))
-            evaluate_feature_explanations(model, full_sampler, full_data, edge_features, sparsity_thresholds)
+            evaluate_feature_explanations(model, full_sampler, full_data, edge_features, sparsity_thresholds, train_data)
         else:
             evaluate_explanations(name, model, full_sampler, full_data, edge_features)
 

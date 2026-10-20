@@ -125,7 +125,7 @@ def evaluate_file(file_name, directory, random_directory, neighbor_finder: Neigh
        
     return results
 
-def evaluate_feature_explanations(model, sampler, data, event_features, sparsity_thresholds) -> None:
+def evaluate_feature_explanations(model, sampler, data, event_features, sparsity_thresholds, train_data) -> None:
     explainer_name = "Shapley4TGNNFeature"
     random_explainer_name = "RandomFeature"
     
@@ -140,7 +140,7 @@ def evaluate_feature_explanations(model, sampler, data, event_features, sparsity
     if not files:
         raise FileNotFoundError(f"No explanation files found in {directory}")
     
-    event_explainer = ShapleyExplainerEvents(model, sampler, data, event_features)
+    event_explainer = ShapleyExplainerEvents(model, sampler, data, train_data, event_features)
     event_explainer.initialize()
     
     frames = [evaluate_file(file, directory, random_directory, sampler, data, event_explainer, sparsity_thresholds)

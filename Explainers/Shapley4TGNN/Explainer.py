@@ -90,6 +90,7 @@ class ShapleyExplainerEvents(Explainer):
         self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
         self.label_for_prediction = label_for_prediction
         self.train_data = train_data
+        self.training_event_ids = train_data.edge_ids
 
     def initialize(self):
         """
@@ -98,7 +99,9 @@ class ShapleyExplainerEvents(Explainer):
         """
         if (not self.recompute_mean_on_prevoius_events):
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction
+                self.data, self.event_features,
+                label_for_prediction=self.label_for_prediction,
+                event_ids_to_consider=self.train_data.edge_ids,
             )
 
     def _explain_instance(self, src: int, dst: int, timestamp: float, subgraphs_src: BatchSubgraphs, subgraphs_dst: BatchSubgraphs, event_ids: np.ndarray, imputation_data: dict, silent: bool = False):
@@ -201,7 +204,10 @@ class ShapleyExplainerEvents(Explainer):
         """
         if self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction, max_timing=timestamp
+                self.data, self.event_features,
+                label_for_prediction=self.label_for_prediction,
+                max_timing=timestamp,
+                event_ids_to_consider=self.train_data.edge_ids,
             )
         
         # Get local temporal subgraphs and imputation defaults
@@ -313,12 +319,15 @@ class ShapleyExplainerFeatures(Explainer):
         self.recompute_mean_on_prevoius_events = recompute_mean_on_prevoius_events
         self.label_for_prediction = label_for_prediction
         self.train_data = train_data
+        self.training_event_ids = train_data.edge_ids
 
     def initialize(self):
         """Compute default values for imputing masked features."""
         if not self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.train_data, self.event_features[self.train_data.edge_ids], label_for_prediction=self.label_for_prediction
+                self.data, self.event_features,
+                label_for_prediction=self.label_for_prediction,
+                event_ids_to_consider=self.train_data.edge_ids,
             )
 
     def build_coalitions(self, explanation):
@@ -381,7 +390,10 @@ class ShapleyExplainerFeatures(Explainer):
         """
         if self.recompute_mean_on_prevoius_events:
             self.mean_values, self.mean_delta_timings = compute_default_values(
-                self.train_data, self.event_features, label_for_prediction=self.label_for_prediction, max_timing=timestamp
+                self.data, self.event_features,
+                label_for_prediction=self.label_for_prediction,
+                max_timing=timestamp,
+                event_ids_to_consider=self.train_data.edge_ids,
             )
         if max_num_samples is None:
             max_num_samples = CONFIG.shapley.max_num_samples
