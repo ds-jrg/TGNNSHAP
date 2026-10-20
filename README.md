@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 Install the CUDA-compatible PyTorch and PyTorch Geometric packages required by the selected environment. The checked-in Slurm jobs use CUDA 12.4 and load Python 3.9 or 3.11 modules; update the module and virtual-environment paths in [`Jobs/`](Jobs) to match the local cluster.
 
-All commands below are run from the repository root. Before running a command, activate the same virtual environment in which the requirements were installed.
+All commands below are run from the repository root. Before running a command, activate the same virtual environment in which the requirements were installed. Alternatively, we provide a container recipe in [`environment.def`](environment.def), which you can use to build a container including all relevant specifications. 
 
 ## Datasets and configurations
 
