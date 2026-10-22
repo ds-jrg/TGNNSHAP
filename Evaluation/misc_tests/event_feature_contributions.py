@@ -160,11 +160,11 @@ for target_event_id in tqdm(selected_event_ids, desc="Target events"):
             f"No neighborhood events found for target event {target_event_id}."
         )
 
-    # "Highest Shapley value" means the largest signed value, rather than the
-    # event with the largest absolute attribution.
-    highest_position = int(np.argmax(event_shapley_values))
-    highest_event_id = int(event_ids[highest_position])
-    highest_event_shapley_value = float(event_shapley_values[highest_position])
+    # "Highest Shapley value" means event with the largest absolute attribution.
+    any_position = int(np.random.choice(len(event_ids),1))
+    highest_position = int(np.argmax(np.abs(event_shapley_values)))
+    highest_event_id = int(event_ids[any_position])
+    highest_event_shapley_value = float(event_shapley_values[any_position])
     highest_source, highest_target, highest_timestamp = event_metadata(
         full_data, highest_event_id, edge_id_to_position
     )
