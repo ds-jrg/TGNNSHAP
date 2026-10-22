@@ -19,4 +19,4 @@ options=( "Flights" "MOOC" "Reddit" "UNtrade" "UNvote" "USLegis" "Wikipedia" )
 
 echo "Running for dataset: ${options[$SLURM_ARRAY_TASK_ID]}"
 
-apptainer exec --nv --contain --cleanenv --bind "$PWD:$PWD" --pwd "$PWD" pytorch26-cu124.sif python -m Evaluation.misc_tests.approximation_quality --dataset ${options[$SLURM_ARRAY_TASK_ID]} 
+apptainer exec --nv --contain --cleanenv --bind "$PWD:$PWD" --pwd "$PWD" pytorch26-cu124.sif python -m Evaluation.misc_tests.approximation_quality --n_reps 5 --n_sample_sizes 5 --dataset ${options[$SLURM_ARRAY_TASK_ID]} 
