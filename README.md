@@ -48,9 +48,6 @@ The training commands are:
 ```bash
 # Link prediction / classification
 python -m Evaluation.Training.prediction -d MOOC
-
-# Link regression
-python -m Evaluation.Training.regression -d Flights
 ```
 
 The task and model are selected by the configuration. Trained checkpoints and metrics are written below [`Saved_models/`](Saved_models), using the dataset and model names configured in the YAML file. Train the model before creating explanations, and ensure that `ModelConfig.trained_model_path` points to the checkpoint to be explained.
