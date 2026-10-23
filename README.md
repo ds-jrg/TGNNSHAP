@@ -1,7 +1,7 @@
 # TGNNSHAP: A Hierarchical Explainer Framework for Temporal Graph Predictions using Shapley and Owen Values
 
 This repository contains the code for the paper *TGNNSHAP: A Hierarchical Explainer Framework for Temporal
-Graph Predictions using Shapley and Owen Values*. It trains temporal graph neural networks (TGNNs), creates event- and feature-level explanations, and evaluates the explanations against several baselines. We share intermediate results via a [Google Drive]() and upload them to Zenodo once the paper got accepted.
+Graph Predictions using Shapley and Owen Values*. It trains temporal graph neural networks (TGNNs), creates event- and feature-level explanations, and evaluates the explanations against several baselines. We share intermediate results via a [Google Drive](https://drive.google.com/drive/folders/1EPk8LriGtb9tLcAzA2vLM8jvWMZuYt-E?usp=drive_link) and upload them to Zenodo once the paper got accepted.
 
 ## Repository layout
 
